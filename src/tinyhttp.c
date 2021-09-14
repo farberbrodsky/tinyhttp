@@ -13,13 +13,118 @@
 
 #define BACKLOG 32
 #define MAX_EPOLL_EVENTS 8
+
 #define READ_BUF_SIZE 2048
+#define WRITE_BUF_INITIAL_SIZE 2048
 
 
 static struct http_io_data_struct {
     int epoll_fd;
     int server_fd;
 } http_io_data;
+
+
+struct http_client {
+    int fd;
+
+    char read_buf[READ_BUF_SIZE];
+    unsigned int read_buf_start;
+    unsigned int read_buf_end;
+
+    char *write_buf;
+    unsigned int write_buf_start;
+    unsigned int write_buf_end;
+    unsigned int write_buf_size;
+};
+
+// indexes in this array are based on file descriptors
+static struct http_client **http_clients = NULL;
+static size_t http_clients_max_fd = 0;
+
+static void alloc_http_client(int fd) {
+    if (fd > http_clients_max_fd) {
+        if (http_clients != NULL) 
+            http_clients = realloc(http_clients, (fd + 1) * sizeof(struct http_client *));
+        else
+            http_clients = malloc((fd + 1) * sizeof(struct http_client *));
+    }
+
+    for (int i = http_clients_max_fd + 1; i < fd; i++) {
+        http_clients[i] = NULL;
+    }
+
+    http_clients[fd] = calloc(1, sizeof(struct http_client));
+    http_clients[fd]->fd = fd;
+    http_clients[fd]->write_buf = malloc(WRITE_BUF_INITIAL_SIZE);
+    http_clients[fd]->write_buf_size = WRITE_BUF_INITIAL_SIZE;
+    http_clients_max_fd = fd;
+}
+
+static void free_http_client(int fd) {
+    free(http_clients[fd]->write_buf);
+    free(http_clients[fd]);
+    http_clients[fd] = NULL;
+}
+
+static void http_client_write(int fd, const void *buf, size_t count) {
+    struct http_client *c = http_clients[fd];
+
+    if (count > 0) {
+        // add some of buf to the write buffer if there is already space
+        size_t copy_amount = c->write_buf_size - c->write_buf_end;
+        if (copy_amount > count) copy_amount = count;
+
+        memcpy(c->write_buf + c->write_buf_end, buf, copy_amount);
+        c->write_buf_end += copy_amount;
+        buf += copy_amount;
+        count -= copy_amount;
+    }
+
+    // try to write as much of the existing buffer as possible
+    errno = 0;
+    int written;
+    while (c->write_buf_end != c->write_buf_start &&
+          (written = write(fd, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start)) > 0)
+        c->write_buf_start += written;
+
+    if (count == 0) return;
+
+    if (errno != EAGAIN) {
+        // try to write some more of the new buffer too
+        while (count > 0 && (written = write(fd, buf, count)) > 0) {
+            buf += written;
+            count -= written;
+        }
+    }
+
+    // what remains of buf must be added to c->write_buf
+    size_t needed_write_buf_size = c->write_buf_end - c->write_buf_start + count;
+    if (needed_write_buf_size > c->write_buf_size) {
+        // must grow, grow to closest power of two
+        while (c->write_buf_size < needed_write_buf_size)
+            c->write_buf_size <<= 1;
+        
+        char *new_write_buf = malloc(c->write_buf_size);
+        memcpy(new_write_buf, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start);
+        memcpy(new_write_buf + c->write_buf_end - c->write_buf_start, buf, count);
+
+        free(c->write_buf);
+        c->write_buf = new_write_buf;
+    } else {
+        // we can fit it! (if we try hard enough)
+        if (count <= (c->write_buf_size - c->write_buf_end)) {
+            // we can fit it easily without moving memory
+            memcpy(c->write_buf + c->write_buf_end, buf, count);
+        } else {
+            // we must move memory
+            memmove(c->write_buf, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start);
+            c->write_buf_end -= c->write_buf_start;
+            c->write_buf_start = 0;
+            memcpy(c->write_buf + c->write_buf_end, buf, count);
+            c->write_buf_end += count;
+        }
+    }
+}
 
 
 static void http_io_respond();
@@ -92,36 +197,49 @@ static void http_io_respond() {
         if (events[i].data.fd == server_fd) {
             struct sockaddr_storage peer_address;
             socklen_t peer_address_len = sizeof(peer_address);
-            int peer_fd = accept4(server_fd, (struct sockaddr *)&peer_address, &peer_address_len, SOCK_NONBLOCK);
-            if (peer_fd == -1) continue;
+            int peer_fd;
+            while ((peer_fd = accept4(server_fd, (struct sockaddr *)&peer_address, &peer_address_len, SOCK_NONBLOCK)) != -1) {
+                alloc_http_client(peer_fd);
 
-            ev.events = EPOLLIN | EPOLLET;
-            ev.data.fd = peer_fd;
-            if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, peer_fd, &ev) != 0) {
-                perror("couldn't add to epoll");
-                close(server_fd);
-                close(epoll_fd);
-                close(peer_fd);
-                exit(1);
-            }
-            printf("Connection: %d\n", peer_fd);
-            write(peer_fd, "welcome!\n", 9);
-        } else {
-            int peer_fd = events[i].data.fd;
-            char buf[READ_BUF_SIZE];
-            ssize_t read_count = read(peer_fd, buf, READ_BUF_SIZE);
-            if (read_count == 0 || (read_count == -1 && errno != EAGAIN)) {
-                // socket closed
-                printf("Closed: %d\n", peer_fd);
-                if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) != 0) {
-                    perror("couldn't remove");
+                ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLET;
+                ev.data.fd = peer_fd;
+                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, peer_fd, &ev) != 0) {
+                    perror("couldn't add to epoll");
+                    close(server_fd);
+                    close(epoll_fd);
+                    close(peer_fd);
                     exit(1);
                 }
-                close(peer_fd);
+                printf("Connection: %d\n", peer_fd);
             }
-            else {
-                printf("Read %d bytes from %d\n", (int)read_count, peer_fd);
-                write(peer_fd, buf, read_count);
+        } else {
+            int peer_fd = events[i].data.fd;
+            if (http_clients[peer_fd] == NULL) continue;
+
+            if (events[i].events & (EPOLLIN | EPOLLHUP)) {
+                char buf[READ_BUF_SIZE];
+                ssize_t read_count = 0;
+
+                while ((read_count = read(peer_fd, buf, READ_BUF_SIZE)) > 0) {
+                    printf("Read %d bytes from %d\n", (int)read_count, peer_fd);
+                    http_client_write(peer_fd, buf, read_count);
+                }
+                if (events[i].events & EPOLLHUP || read_count == 0 || (read_count == -1 && errno != EAGAIN)) {
+                    // socket closed
+                    printf("Closed: %d\n", peer_fd);
+
+                    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) != 0) {
+                        perror("couldn't remove");
+                        exit(1);
+                    }
+
+                    close(peer_fd);
+                    free_http_client(peer_fd);
+                }
+            }
+            if (http_clients[peer_fd] != NULL && events[i].events & EPOLLOUT){
+                printf("Ready for out %d!\n", peer_fd);
+                http_client_write(peer_fd, NULL, 0);
             }
         }
     }
