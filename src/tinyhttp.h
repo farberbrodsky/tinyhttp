@@ -20,11 +20,7 @@ typedef size_t (*http_io_client_read_handler)(struct http_io_client *c, const ch
 
 struct http_io_client {
     void *custom_data;
-
     int fd;
-    char read_buf[READ_BUF_SIZE];
-    unsigned int read_buf_start;
-    unsigned int read_buf_end;
 
     http_io_client_read_handler rd_handler;
     void *rd_handler_data;
