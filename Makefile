@@ -1,5 +1,5 @@
 CC = cc
-CCFLAGS = -Wall
+CCFLAGS = -Wall -g
 
 example: build/example.o build/tinyhttp.o
 	$(CC) $(CCFLAGS) build/example.o build/tinyhttp.o -o build/example
