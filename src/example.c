@@ -39,7 +39,7 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
         if (data->len == MAX_HEADER_SIZE) break;  // TODO should close client, this will probably cause bugs
         --final_count;
         data->header[data->len++] = buf[i];
-        if (*(uint32_t *)(&data->header[data->len - 4]) == end_of_headers) {
+        if (data->len >= 4 && *(uint32_t *)(&data->header[data->len - 4]) == end_of_headers) {
             printf("End of headers!\n");
             free(data);
             http_io_client_set_read_handler(c, normal_read_handler);

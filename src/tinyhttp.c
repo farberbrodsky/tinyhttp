@@ -27,7 +27,7 @@ static void alloc_http_client(int fd) {
         if (http_io_clients != NULL) 
             http_io_clients = realloc(http_io_clients, (fd + 1) * sizeof(struct http_io_client *));
         else
-            http_io_clients = malloc((fd + 1) * sizeof(struct http_io_client *));
+            http_io_clients = calloc(sizeof(struct http_io_client *), fd + 1);
     }
 
     for (int i = http_clients_max_fd + 1; i < fd; i++) {
@@ -42,6 +42,7 @@ static void alloc_http_client(int fd) {
 }
 
 static void free_http_client(int fd) {
+    if (http_io_clients[fd] == NULL) return;
     free(http_io_clients[fd]->write_buf);
     free(http_io_clients[fd]);
     http_io_clients[fd] = NULL;
@@ -229,7 +230,8 @@ static void http_io_respond() {
                     free_http_client(peer_fd);
                 }
             }
-            if (events[i].events & EPOLLOUT){
+            // check is here because it might have closed
+            if (http_io_clients[peer_fd] != NULL && events[i].events & EPOLLOUT) {
                 printf("Ready for out %d!\n", peer_fd);
                 http_client_write(c, NULL, 0);
             }
