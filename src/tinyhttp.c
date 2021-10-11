@@ -44,7 +44,8 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
             while (h_ptr != h_end && *((uint16_t *)h_ptr) != newline) ++h_ptr;
             *h_ptr = '\0';
             if (strcmp(custom_data->http_ver, "HTTP/1.1") != 0) {
-                printf("Not http/1.1... should probably do a bad response\n");
+                http_client_close_on_error(c, HTTP_EGENERIC);  // not http/1.1, this is bad
+                break;
             }
 
             // look for method and path
@@ -72,6 +73,11 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
 
             custom_data->headers = headers;
             http_io_client_read_handler rd_handler = ((http_request_router)(arg))(custom_data);
+            if (rd_handler == NULL) {
+                // client close
+                http_client_close_on_error(c, HTTP_EGENERIC);
+                break;
+            }
             http_io_client_set_read_handler(c, rd_handler, NULL);
             rd_handler(c, buf, 0, NULL, datap);
             break;

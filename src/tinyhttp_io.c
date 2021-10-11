@@ -15,6 +15,7 @@ static struct http_io_global_struct {
     int epoll_fd;
     int server_fd;
     http_io_client_new_handler new_handler;
+    http_io_client_error_handler err_handler;
 } http_io_global;
 
 
@@ -106,10 +107,15 @@ void http_client_write(struct http_io_client *c, const char *buf, size_t count) 
     }
 }
 
+void http_client_close_on_error(struct http_io_client *c, int err) {
+    http_io_global.err_handler(c, err);
+    c->should_be_removed = true;
+}
 
 static void http_io_respond();
-int http_serve(int port_num, http_io_client_new_handler new_handler) {
+int http_serve(int port_num, http_io_client_new_handler new_handler, http_io_client_error_handler err_handler) {
     http_io_global.new_handler = new_handler;
+    http_io_global.err_handler = err_handler;
 
     struct addrinfo hints, *addrinfo_result;
     memset(&hints, 0, sizeof(hints));
@@ -204,6 +210,8 @@ static void http_io_respond() {
             struct http_io_client *c = http_io_clients[peer_fd];
             if (c == NULL) continue;
 
+            int close_socket = c->should_be_removed && c->write_buf_start == c->write_buf_end;
+
             if (events[i].events & (EPOLLIN | EPOLLHUP)) {
                 char buf[READ_BUF_SIZE];
                 ssize_t read_count = 0;
@@ -218,17 +226,24 @@ static void http_io_respond() {
                     }
                 }
                 if (events[i].events & EPOLLHUP || read_count == 0 || (read_count == -1 && errno != EAGAIN)) {
-                    // socket closed
-                    printf("Closed: %d\n", peer_fd);
-
-                    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) != 0) {
-                        perror("couldn't remove");
-                        exit(1);
-                    }
-
-                    close(peer_fd);
-                    free_http_client(peer_fd);
+                    close_socket = 2;
                 }
+            }
+
+            if (close_socket) {
+                if (close_socket == 1) {
+                    close(peer_fd);
+                }
+
+                printf("Closed: %d\n", peer_fd);
+
+                if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) != 0) {
+                    perror("couldn't remove");
+                    exit(1);
+                }
+
+                close(peer_fd);
+                free_http_client(peer_fd);
             }
             // check is here because it might have closed
             if (http_io_clients[peer_fd] != NULL && events[i].events & EPOLLOUT) {

@@ -12,6 +12,9 @@ struct http_headers {
     char *http_ver;
     char **headers;  // like envp, a list of char *s of different headers, null terminated
 };
+
+#define HTTP_EGENERIC 0
+#define HTTP_EHEADERTOOLARGE 3
 typedef http_io_client_read_handler (*http_request_router)(struct http_headers *data);
 
 size_t header_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap);
