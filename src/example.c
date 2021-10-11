@@ -17,7 +17,7 @@ struct client_data {
 
 // TODO free client_data at some point
 
-static size_t normal_read_handler(struct http_io_client *c, const char *buf, size_t count, void **datap) {
+static size_t normal_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
     struct client_data *custom_data = c->custom_data;
     if (*datap == 0) {
         char *s = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n1337";
@@ -30,7 +30,12 @@ static size_t normal_read_handler(struct http_io_client *c, const char *buf, siz
     return count;
 }
 
-static size_t header_read_handler(struct http_io_client *c, const char *buf, size_t count, void **datap) {
+static http_io_client_read_handler my_request_router(struct client_data *data) {
+    return normal_read_handler;
+}
+
+typedef http_io_client_read_handler (*http_request_router)(struct client_data *data);
+static size_t header_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
     uint32_t end_of_headers = be32toh(0x0d0a0d0a);
     uint32_t http = be32toh(0x48545450);
     uint16_t newline = be16toh(0x0d0a);
@@ -85,8 +90,9 @@ static size_t header_read_handler(struct http_io_client *c, const char *buf, siz
             }
 
             custom_data->headers = headers;
-            http_io_client_set_read_handler(c, normal_read_handler);
-            normal_read_handler(c, buf, 0, datap);
+            http_io_client_read_handler rd_handler = ((http_request_router)(arg))(custom_data);
+            http_io_client_set_read_handler(c, rd_handler, NULL);
+            rd_handler(c, buf, 0, NULL, datap);
             break;
         }
     }
@@ -101,7 +107,7 @@ static void new_client_handler(struct http_io_client *c) {
     client_data->headers = NULL;
     c->custom_data = client_data;
     ((struct client_data *)c->custom_data)->header[0] = '\0';
-    http_io_client_set_read_handler(c, header_read_handler);
+    http_io_client_set_read_handler(c, header_read_handler, my_request_router);
 }
 
 int main() {

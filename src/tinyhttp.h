@@ -15,8 +15,10 @@ int http_serve(int port_num, http_io_client_new_handler new_handler);
 
 // Gets length of buffer, returns how much of it has been used
 // data starts as NULL, and is a pointer to a void *. It is used for state.
-// You are responsible for allocating/freeing *data.
-typedef size_t (*http_io_client_read_handler)(struct http_io_client *c, const char *buf, size_t count, void **data);
+// arg can be passed when setting a read handler,
+// and is given as an argument every time.
+// You are responsible for allocating/freeing *data and freeing arg.
+typedef size_t (*http_io_client_read_handler)(struct http_io_client *c, const char *buf, size_t count, void *arg, void **data);
 
 struct http_io_client {
     void *custom_data;
@@ -24,6 +26,7 @@ struct http_io_client {
 
     http_io_client_read_handler rd_handler;
     void *rd_handler_data;
+    void *rd_handler_arg;
 
     char *write_buf;
     unsigned int write_buf_start;
@@ -34,6 +37,6 @@ struct http_io_client {
 void http_client_write(struct http_io_client *c, const char *buf, size_t count);
 
 // Every http io client has one read handler
-void http_io_client_set_read_handler(struct http_io_client *c, http_io_client_read_handler rd_handler);
+void http_io_client_set_read_handler(struct http_io_client *c, http_io_client_read_handler rd_handler, void *arg);
 
 #endif

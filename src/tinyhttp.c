@@ -214,7 +214,7 @@ static void http_io_respond() {
                         http_client_write(http_io_clients[peer_fd], buf, read_count);
                         read_count = 0;
                     } else {
-                        read_count -= c->rd_handler(c, buf, read_count, &c->rd_handler_data);
+                        read_count -= c->rd_handler(c, buf, read_count, c->rd_handler_arg, &c->rd_handler_data);
                     }
                 }
                 if (events[i].events & EPOLLHUP || read_count == 0 || (read_count == -1 && errno != EAGAIN)) {
@@ -239,9 +239,10 @@ static void http_io_respond() {
     }
 }
 
-void http_io_client_set_read_handler(struct http_io_client *c, http_io_client_read_handler rd_handler) {
+void http_io_client_set_read_handler(struct http_io_client *c, http_io_client_read_handler rd_handler, void *arg) {
     c->rd_handler = rd_handler;
     c->rd_handler_data = NULL;
+    c->rd_handler_arg = arg;
 }
 
 #endif
