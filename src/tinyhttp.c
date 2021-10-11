@@ -35,6 +35,7 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
             // first line is method, path, version
             char *h_ptr = header;
             char *h_end = header + h_len - 2;
+            final_count += 4;
             char **headers = calloc(1, sizeof(char *));
 
             // check http version

@@ -8,12 +8,19 @@
 static size_t normal_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
     struct http_headers *custom_data = c->custom_data;
     if (*datap == 0) {
-        char *s = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n1337";
+        char *s = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n";
 
+        printf("Headers are:\n");
         char **headers = custom_data->headers;
         while (*headers != NULL) printf("%s\n", *(headers++));
         http_client_write(c, s, strlen(s));
         ++(*datap);
+    }
+    printf("\nread %zu bytes!\n", count);
+    if (count > 0) {
+        write(1, buf, count);
+        char *s = "1337";
+        http_client_write(c, s, strlen(s));
     }
     return count;
 }
