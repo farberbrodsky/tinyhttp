@@ -1,6 +1,6 @@
+#ifndef _TINYHTTP_IO_H
+#define _TINYHTTP_IO_H
 #include <unistd.h>
-#ifndef _TINYHTTP_H
-#define _TINYHTTP_H
 
 #define BACKLOG 32
 #define MAX_EPOLL_EVENTS 8

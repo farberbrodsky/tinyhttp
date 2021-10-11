@@ -1,6 +1,6 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
-#include "tinyhttp.h"
+#include "tinyhttp_io.h"
 #include <errno.h>
 #include <stdio.h>
 #include <netdb.h>

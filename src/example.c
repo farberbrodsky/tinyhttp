@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <endian.h>
-#include "tinyhttp.h"
+#include "tinyhttp_io.h"
 
 #define MAX_HEADER_SIZE 8192
 
