@@ -51,15 +51,16 @@ static void free_http_io_client(int fd) {
 
 // count=0 is for writing as much as possible
 void http_client_write(struct http_io_client *c, const char *buf, size_t count) {
-    if (count > 0) {
+    size_t r_count = count;  // remaining count
+    if (r_count > 0) {
         // add some of buf to the write buffer if there is already space
         size_t copy_amount = c->write_buf_size - c->write_buf_end;
-        if (copy_amount > count) copy_amount = count;
+        if (copy_amount > r_count) copy_amount = r_count;
 
         memcpy(c->write_buf + c->write_buf_end, buf, copy_amount);
         c->write_buf_end += copy_amount;
         buf += copy_amount;
-        count -= copy_amount;
+        r_count -= copy_amount;
     }
 
     // try to write as much of the existing buffer as possible
@@ -72,9 +73,9 @@ void http_client_write(struct http_io_client *c, const char *buf, size_t count) 
             c->write_buf_start += written;
     }
 
-    if (count == 0) return;
+    if (r_count == 0) return;
 
-    if (errno != EAGAIN) {
+    if (errno != EAGAIN && c->write_buf_end == c->write_buf_start) {
         // try to write some more of the new buffer too
         while (count > 0 && (written = write(c->fd, buf, count)) > 0) {
             buf += written;
@@ -83,7 +84,7 @@ void http_client_write(struct http_io_client *c, const char *buf, size_t count) 
     }
 
     // what remains of buf must be added to c->write_buf
-    size_t needed_write_buf_size = c->write_buf_end - c->write_buf_start + count;
+    size_t needed_write_buf_size = c->write_buf_end - c->write_buf_start + r_count;
     if (needed_write_buf_size > c->write_buf_size) {
         // must grow, grow to closest power of two
         while (c->write_buf_size < needed_write_buf_size)
@@ -91,22 +92,24 @@ void http_client_write(struct http_io_client *c, const char *buf, size_t count) 
         
         char *new_write_buf = malloc(c->write_buf_size);
         memcpy(new_write_buf, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start);
-        memcpy(new_write_buf + c->write_buf_end - c->write_buf_start, buf, count);
+        memcpy(new_write_buf + c->write_buf_end - c->write_buf_start, buf, r_count);
 
         free(c->write_buf);
         c->write_buf = new_write_buf;
+        c->write_buf_start = 0;
+        c->write_buf_end = needed_write_buf_size;
     } else {
         // we can fit it! (if we try hard enough)
-        if (count <= (c->write_buf_size - c->write_buf_end)) {
+        if (r_count <= (c->write_buf_size - c->write_buf_end)) {
             // we can fit it easily without moving memory
-            memcpy(c->write_buf + c->write_buf_end, buf, count);
+            memcpy(c->write_buf + c->write_buf_end, buf, r_count);
         } else {
             // we must move memory
             memmove(c->write_buf, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start);
             c->write_buf_end -= c->write_buf_start;
             c->write_buf_start = 0;
-            memcpy(c->write_buf + c->write_buf_end, buf, count);
-            c->write_buf_end += count;
+            memcpy(c->write_buf + c->write_buf_end, buf, r_count);
+            c->write_buf_end += r_count;
         }
     }
 }

@@ -5,16 +5,6 @@
 #include <endian.h>
 #include "tinyhttp.h"
 
-static void err_handler(struct http_io_client *c, int err) {
-    char *s;
-    if (err == HTTP_EHEADERTOOLARGE) {
-        s = "HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 17\r\n\r\nHeaders Too Large";
-    } else {
-        s = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 12\r\n\r\nServer Error";
-    }
-    http_client_write(c, s, strlen(s));
-}
-
 static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
     if (*datap == 0) {
         char *s = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n1337";
@@ -48,13 +38,23 @@ static http_io_client_read_handler my_request_router(struct http_headers *data) 
     if (strcmp(data->method, "GET") == 0) {
         return get_req_handler;
     } else {
-        return NULL;
+        return content_req_handler;
     }
 }
 
 static void new_client_handler(struct http_io_client *c) {
     printf("Connection!!! %d\n", c->fd);
     http_io_client_set_read_handler(c, header_read_handler, my_request_router);
+}
+
+static void err_handler(struct http_io_client *c, int err) {
+    char *s;
+    if (err == HTTP_EHEADERTOOLARGE) {
+        s = "HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 17\r\n\r\nHeaders Too Large";
+    } else {
+        s = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 12\r\n\r\nServer Error";
+    }
+    http_client_write(c, s, strlen(s));
 }
 
 int main() {
