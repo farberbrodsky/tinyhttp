@@ -6,7 +6,13 @@
 #include "tinyhttp.h"
 
 static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
+    struct http_headers *custom_data = c->custom_data;
     if (*datap == 0) {
+        printf("HTTP version %s method %s path %s\n", custom_data->http_ver, custom_data->method, custom_data->path);
+        printf("Headers are:\n");
+        char **headers = custom_data->headers;
+        while (*headers != NULL) printf("%s\n", *(headers++));
+
         char *s = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n1337";
         ++(*datap);
         http_client_write(c, s, strlen(s));
@@ -19,6 +25,7 @@ static size_t content_req_handler(struct http_io_client *c, const char *buf, siz
     if (*datap == 0) {
         char *s = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n";
 
+        printf("HTTP version %s method %s path %s\n", custom_data->http_ver, custom_data->method, custom_data->path);
         printf("Headers are:\n");
         char **headers = custom_data->headers;
         while (*headers != NULL) printf("%s\n", *(headers++));

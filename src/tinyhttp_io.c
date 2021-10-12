@@ -207,7 +207,7 @@ static void http_io_respond() {
                 }
 
                 if (http_io_global.new_handler == NULL) {
-                    printf("NO HANDLER: Connection: %d\n", peer_fd);
+                    fprintf(stderr, "NO HANDLER: Connection: %d\n", peer_fd);
                 } else {
                     http_io_global.new_handler(http_io_clients[peer_fd]);
                 }
@@ -225,7 +225,7 @@ static void http_io_respond() {
 
                 while (read_count > 0 || (read_count = read(peer_fd, buf, READ_BUF_SIZE)) > 0) {
                     if (c->rd_handler == NULL) {
-                        printf("NO HANDLER: Read %d bytes from %d, echoing\n", (int)read_count, peer_fd);
+                        fprintf(stderr, "NO HANDLER: Read %d bytes from %d, echoing\n", (int)read_count, peer_fd);
                         http_client_write(http_io_clients[peer_fd], buf, read_count);
                         read_count = 0;
                     } else {
@@ -242,7 +242,7 @@ static void http_io_respond() {
                     close(peer_fd);
                 }
 
-                printf("Closed: %d\n", peer_fd);
+                // printf("Closed: %d\n", peer_fd);
 
                 if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) != 0) {
                     perror("couldn't remove");
@@ -254,7 +254,7 @@ static void http_io_respond() {
             }
             // check is here because it might have closed
             if (http_io_clients[peer_fd] != NULL && events[i].events & EPOLLOUT) {
-                printf("Ready for out %d!\n", peer_fd);
+                // printf("Ready for out %d!\n", peer_fd);
                 http_client_write(c, NULL, 0);
             }
         }

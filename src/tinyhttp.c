@@ -56,7 +56,6 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
             custom_data->path = ++h_ptr;
             while (h_ptr != custom_data->http_ver && *h_ptr != ' ') ++h_ptr;
             *h_ptr = '\0';
-            printf("HTTP version %s method %s path %s\n", custom_data->http_ver, custom_data->method, custom_data->path);
 
             // rest of the headers...
             for (int i = 0; i < 10; i++) {
