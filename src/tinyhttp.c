@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <ctype.h>
 #include <endian.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,7 +36,6 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
             // first line is method, path, version
             char *h_ptr = header;
             char *h_end = header + h_len - 2;
-            final_count += 4;
             char **headers = calloc(1, sizeof(char *));
 
             // check http version
@@ -90,4 +90,21 @@ void header_free_handler(struct http_io_client *c) {
     if (custom_data == NULL) return;
     free(custom_data->headers);
     free(custom_data);
+}
+
+char *http_header_by_name(struct http_headers *h, char *name) {
+    char **headers_p = h->headers;
+    char *header;
+    while ((header = *(headers_p++)) != NULL) {
+        char *name_p = name;
+        // Compare the header and name, until one of them terminates
+        while (*header != '\0' && *header != ':' && *name_p != '\0' && tolower(*(header++)) == *(name_p++));
+        // Check that both have terminated correctly
+        if (*header == ':' && *name_p == '\0') {
+            // Skip the colon, and if there is a space before the header value, go to the next character
+            if (*(++header) == ' ') ++header;
+            return header;
+        }
+    }
+    return NULL;
 }

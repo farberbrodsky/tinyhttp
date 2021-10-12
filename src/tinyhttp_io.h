@@ -42,6 +42,7 @@ struct http_io_client {
 };
 
 void http_client_write(struct http_io_client *c, const char *buf, size_t count);
+void http_client_close(struct http_io_client *c);
 void http_client_close_on_error(struct http_io_client *c, int err);
 
 // Every http io client has one read handler

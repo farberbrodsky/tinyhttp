@@ -17,7 +17,14 @@ struct http_headers {
 #define HTTP_EHEADERTOOLARGE 3
 typedef http_io_client_read_handler (*http_request_router)(struct http_headers *data);
 
+// Reads headers, then calls the http_request_router in arg.
+// After that it sets the read handler to the result of the router, with the argument being the headers.
+// The headers are also stored in c->custom_data.
 size_t header_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap);
+// Frees headers from c->custom_data
 void header_free_handler(struct http_io_client *c);
+// Returns the value of a header, or NULL if it does not exist
+// name must be lowercase
+char *http_header_by_name(struct http_headers *h, char *name);
 
 #endif

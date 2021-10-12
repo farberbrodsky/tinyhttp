@@ -117,9 +117,13 @@ void http_client_write(struct http_io_client *c, const char *buf, size_t count) 
     }
 }
 
+void http_client_close(struct http_io_client *c) {
+    c->should_be_removed = true;
+}
+
 void http_client_close_on_error(struct http_io_client *c, int err) {
     http_io_global.err_handler(c, err);
-    c->should_be_removed = true;
+    http_client_close(c);
 }
 
 static void http_io_respond();
@@ -222,18 +226,19 @@ static void http_io_respond() {
 
             int close_socket = c->should_be_removed && c->write_buf_start == c->write_buf_end;
 
-            if (events[i].events & (EPOLLIN | EPOLLHUP)) {
+            if (events[i].events & (EPOLLIN | EPOLLHUP) && !c->should_be_removed) {
                 char buf[READ_BUF_SIZE];
                 ssize_t read_count = 0;
 
-                while (read_count > 0 || (read_count = read(peer_fd, buf, READ_BUF_SIZE)) > 0) {
-                    if (c->rd_handler == NULL) {
-                        fprintf(stderr, "NO HANDLER: Read %d bytes from %d, echoing\n", (int)read_count, peer_fd);
-                        http_client_write(http_io_clients[peer_fd], buf, read_count);
-                        read_count = 0;
-                    } else {
-                        read_count -= c->rd_handler(c, buf, read_count, c->rd_handler_arg, &c->rd_handler_data);
-                    }
+                if (c->rd_handler == NULL) {
+                    fputs("NO READ HANDLER!!!", stderr);
+                }
+
+                char *buf_p = buf;
+                while (read_count > 0 || (buf_p = buf, read_count = read(peer_fd, buf, READ_BUF_SIZE)) > 0) {
+                    size_t cnt = c->rd_handler(c, buf_p, read_count, c->rd_handler_arg, &c->rd_handler_data);
+                    read_count -= cnt;
+                    buf_p += cnt;
                 }
                 if (events[i].events & EPOLLHUP || read_count == 0 || (read_count == -1 && errno != EAGAIN)) {
                     close_socket = 2;
@@ -241,15 +246,15 @@ static void http_io_respond() {
             }
 
             if (close_socket) {
-                if (close_socket == 1) {
-                    close(peer_fd);
-                }
-
                 // printf("Closed: %d\n", peer_fd);
 
                 if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) != 0) {
                     perror("couldn't remove");
                     exit(1);
+                }
+
+                if (close_socket == 1) {
+                    close(peer_fd);
                 }
 
                 close(peer_fd);
