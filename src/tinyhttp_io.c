@@ -42,13 +42,14 @@ static void alloc_http_client(int fd) {
     http_clients_max_fd = fd;
 }
 
-static void free_http_client(int fd) {
+static void free_http_io_client(int fd) {
     if (http_io_clients[fd] == NULL) return;
     free(http_io_clients[fd]->write_buf);
     free(http_io_clients[fd]);
     http_io_clients[fd] = NULL;
 }
 
+// count=0 is for writing as much as possible
 void http_client_write(struct http_io_client *c, const char *buf, size_t count) {
     if (count > 0) {
         // add some of buf to the write buffer if there is already space
@@ -64,9 +65,12 @@ void http_client_write(struct http_io_client *c, const char *buf, size_t count) 
     // try to write as much of the existing buffer as possible
     errno = 0;
     int written;
-    while (c->write_buf_end != c->write_buf_start &&
-          (written = write(c->fd, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start)) > 0)
-        c->write_buf_start += written;
+    
+    if (count == 0 || (c->write_buf_end - c->write_buf_start) > 1024) {  // to reduce the amount of syscalls
+        while (c->write_buf_end != c->write_buf_start &&
+              (written = write(c->fd, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start)) > 0)
+            c->write_buf_start += written;
+    }
 
     if (count == 0) return;
 
@@ -243,7 +247,7 @@ static void http_io_respond() {
                 }
 
                 close(peer_fd);
-                free_http_client(peer_fd);
+                free_http_io_client(peer_fd);
             }
             // check is here because it might have closed
             if (http_io_clients[peer_fd] != NULL && events[i].events & EPOLLOUT) {
