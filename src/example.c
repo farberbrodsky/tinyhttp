@@ -21,6 +21,7 @@ static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t 
         ++(*datap);
         http_client_write(c, s, strlen(s));
     }
+    return count;
 }
 
 static size_t content_req_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
