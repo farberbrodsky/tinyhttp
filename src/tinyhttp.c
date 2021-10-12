@@ -85,4 +85,9 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
     return final_count;
 }
 
-
+void header_free_handler(struct http_io_client *c) {
+    struct http_headers *custom_data = c->custom_data;
+    if (custom_data == NULL) return;
+    free(custom_data->headers);
+    free(custom_data);
+}

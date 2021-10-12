@@ -51,7 +51,10 @@ static http_io_client_read_handler my_request_router(struct http_headers *data) 
 
 static void new_client_handler(struct http_io_client *c) {
     printf("Connection!!! %d\n", c->fd);
+    // Read the headers, then call my_request_router to find the right handler
     http_io_client_set_read_handler(c, header_read_handler, my_request_router);
+    // If the client disconnects, free the headers
+    http_io_client_set_free_handler(c, header_free_handler);
 }
 
 static void err_handler(struct http_io_client *c, int err) {

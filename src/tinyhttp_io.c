@@ -43,9 +43,12 @@ static void alloc_http_client(int fd) {
 }
 
 static void free_http_io_client(int fd) {
-    if (http_io_clients[fd] == NULL) return;
-    free(http_io_clients[fd]->write_buf);
-    free(http_io_clients[fd]);
+    struct http_io_client *c = http_io_clients[fd];
+    if (c == NULL) return;
+
+    if (c->free_handler != NULL) c->free_handler(c);
+    free(c->write_buf);
+    free(c);
     http_io_clients[fd] = NULL;
 }
 
@@ -265,6 +268,10 @@ void http_io_client_set_read_handler(struct http_io_client *c, http_io_client_re
     c->rd_handler = rd_handler;
     c->rd_handler_data = NULL;
     c->rd_handler_arg = arg;
+}
+
+void http_io_client_set_free_handler(struct http_io_client *c, http_io_client_free_handler free_handler) {
+    c->free_handler = free_handler;
 }
 
 #endif

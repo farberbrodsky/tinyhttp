@@ -21,6 +21,8 @@ int http_serve(int port_num, http_io_client_new_handler new_handler, http_io_cli
 // and is given as an argument every time.
 // You are responsible for allocating/freeing *data and freeing arg.
 typedef size_t (*http_io_client_read_handler)(struct http_io_client *c, const char *buf, size_t count, void *arg, void **data);
+// This is useful for freeing arg.
+typedef void (*http_io_client_free_handler)(struct http_io_client *c);
 
 struct http_io_client {
     void *custom_data;
@@ -29,6 +31,8 @@ struct http_io_client {
     http_io_client_read_handler rd_handler;
     void *rd_handler_data;
     void *rd_handler_arg;
+
+    http_io_client_free_handler free_handler;
     bool should_be_removed;  // set when a client caused an error and we want to finish writing
 
     char *write_buf;
@@ -42,5 +46,6 @@ void http_client_close_on_error(struct http_io_client *c, int err);
 
 // Every http io client has one read handler
 void http_io_client_set_read_handler(struct http_io_client *c, http_io_client_read_handler rd_handler, void *arg);
+void http_io_client_set_free_handler(struct http_io_client *c, http_io_client_free_handler free_handler);
 
 #endif
