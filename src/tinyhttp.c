@@ -108,3 +108,63 @@ char *http_header_by_name(struct http_headers *h, char *name) {
     }
     return NULL;
 }
+
+
+static char http_1_1_[] = {'H', 'T', 'T', 'P', '/', '1', '.', '1', ' '};
+
+struct http_response http_response_init(struct http_io_client *client, char *status) {
+    size_t status_len = strlen(status);
+    size_t full_status_line_len = sizeof(http_1_1_) + status_len + 2;  // 2 is for \r\n
+    char *full_status_line = alloca(full_status_line_len);
+    memcpy(full_status_line, http_1_1_, sizeof(http_1_1_));
+    memcpy(full_status_line + sizeof(http_1_1_), status, status_len);
+    full_status_line[full_status_line_len - 2] = '\r';
+    full_status_line[full_status_line_len - 1] = '\n';
+    http_client_write(client, full_status_line, full_status_line_len);
+
+    struct http_response r;
+    r.client = client;
+    r.stage = HTTP_RESPONSE_STAGE_HEADERS;
+
+    return r;
+}
+
+void http_response_set_header(struct http_response *r, char *key, char *val) {
+    if (r->stage != HTTP_RESPONSE_STAGE_HEADERS) {
+        fputs("http_response_set_header: wrong stage!", stderr);
+    }
+
+    size_t key_len = strlen(key);
+    size_t val_len = strlen(val);
+    size_t header_len = key_len + val_len + 3;  // 3 is for : and \r\n
+    char *header = malloc(header_len);
+
+    memcpy(header, key, key_len);
+    header[key_len] = ':';
+    memcpy(header + key_len + 1, val, val_len);
+    header[header_len - 2] = '\r';
+    header[header_len - 1] = '\n';
+    http_client_write(r->client, header, header_len);
+    free(header);
+}
+
+void http_response_set_content_length(struct http_response *r, size_t content_length) {
+    if (r->stage != HTTP_RESPONSE_STAGE_HEADERS) {
+        fputs("http_response_set_content_length: wrong stage!", stderr);
+        return;
+    }
+
+    char content_length_str[32];
+    snprintf(content_length_str, sizeof(content_length_str), "%zu\r\n", content_length);
+    http_response_set_header(r, "Content-Length", content_length_str);
+
+    r->stage = HTTP_RESPONSE_STAGE_CONTENT;
+}
+
+void http_response_send_content(struct http_response *r, char *buf, size_t count) {
+    if (r->stage != HTTP_RESPONSE_STAGE_CONTENT) {
+        fputs("http_response_send_content: wrong stage!", stderr);
+        return;
+    }
+    http_client_write(r->client, buf, count);
+}

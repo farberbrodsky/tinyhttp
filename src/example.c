@@ -16,9 +16,12 @@ static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t 
         char **headers = custom_data->headers;
         while (*headers != NULL) printf("%s\n", *(headers++));
 
-        char *s = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n1337";
+        struct http_response r = http_response_init(c, "200 OK");
+        http_response_set_header(&r, "Content-Type", "text/plain; charset=utf-8");
+        http_response_set_content_length(&r, 4);
+        http_response_send_content(&r, "1337", 4);
         ++(*datap);
-        http_client_write(c, s, strlen(s));
+        http_client_close(c);
     }
     return count;
 }
@@ -52,8 +55,10 @@ static size_t content_req_handler(struct http_io_client *c, const char *buf, siz
         *datap -= count;
     }
     if (*datap == (void *)1) {  // done reading
-        char *s = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n1337";
-        http_client_write(c, s, strlen(s));
+        struct http_response r = http_response_init(c, "200 OK");
+        http_response_set_header(&r, "Content-Type", "text/plain; charset=utf-8");
+        http_response_set_content_length(&r, 4);
+        http_response_send_content(&r, "1337", 4);
         http_client_close(c);
     }
     return count;
