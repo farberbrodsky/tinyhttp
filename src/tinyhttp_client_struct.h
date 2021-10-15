@@ -1,5 +1,5 @@
 #ifndef _TINYHTTP_CLIENT_STRUCT
-#define _TINYHTTP_CLIENT_STRUCt
+#define _TINYHTTP_CLIENT_STRUCT
 struct http_headers;
 
 // Higher level struct for clients
