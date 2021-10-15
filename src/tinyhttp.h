@@ -30,22 +30,13 @@ void header_free_handler(struct http_io_client *c);
 char *http_header_by_name(struct http_headers *h, char *name);
 
 // RESPONSE CONSTRUCTION
-struct http_response {
-    struct http_io_client *client;
-
-    enum http_response_stage {
-        HTTP_RESPONSE_STAGE_HEADERS,  // Content-Type: application/whatever
-        HTTP_RESPONSE_STAGE_CONTENT,  // ...
-        HTTP_RESPONSE_STAGE_CONTENT_TRANSFER,  // TODO, for transfer encoding
-    } stage;
-};
 // e.g. c, "200 OK"
-struct http_response http_response_init(struct http_io_client *client, char *status);
+void http_response_set_status(struct http_io_client *c, char *status);
 // e.g. "Content-Type", "application/whatever"
-void http_response_set_header(struct http_response *r, char *key, char *value);
+void http_response_set_header(struct http_io_client *c, char *key, char *value);
 // TODO: support transfer encoding if you don't know in advance how large the output will be
-void http_response_set_content_length(struct http_response *r, size_t content_length);
+void http_response_set_content_length(struct http_io_client *c, size_t content_length);
 // You can send your content in parts
-void http_response_send_content(struct http_response *r, char *buf, size_t count);
+void http_response_send_content(struct http_io_client *c, char *buf, size_t count);
 
 #endif

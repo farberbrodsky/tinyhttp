@@ -16,10 +16,10 @@ static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t 
     char **headers = headers_struct->headers;
     while (*headers != NULL) printf("%s\n", *(headers++));
 
-    struct http_response r = http_response_init(c, "200 OK");
-    http_response_set_header(&r, "Content-Type", "text/plain; charset=utf-8");
-    http_response_set_content_length(&r, 4);
-    http_response_send_content(&r, "1337", 4);
+    http_response_set_status(c, "200 OK");
+    http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
+    http_response_set_content_length(c, 4);
+    http_response_send_content(c, "1337", 4);
     http_client_close(c);
 
     return count;
@@ -54,10 +54,10 @@ static size_t content_req_handler(struct http_io_client *c, const char *buf, siz
         *datap -= count;
     }
     if (*datap == (void *)1) {  // done reading
-        struct http_response r = http_response_init(c, "200 OK");
-        http_response_set_header(&r, "Content-Type", "text/plain; charset=utf-8");
-        http_response_set_content_length(&r, 4);
-        http_response_send_content(&r, "1337", 4);
+        http_response_set_status(c, "200 OK");
+        http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
+        http_response_set_content_length(c, 4);
+        http_response_send_content(c, "1337", 4);
         http_client_close(c);
     }
     return count;

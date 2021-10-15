@@ -6,5 +6,17 @@ struct http_headers;
 struct http_client_data {
     struct http_headers *headers;
     void *custom_data;
+
+    enum http_request_encoding {
+        HTTP_REQUEST_ENCODING_NORMAL,   // have content-length
+        HTTP_REQUEST_ENCODING_CHUNKED,  // must be supported for http/1.1
+    } request_encoding;
+
+    enum http_response_stage {
+        HTTP_RESPONSE_STAGE_STATUS,   // HTTP/1.1 200 OK
+        HTTP_RESPONSE_STAGE_HEADERS,  // Content-Type: application/whatever
+        HTTP_RESPONSE_STAGE_CONTENT,  // ...
+        HTTP_RESPONSE_STAGE_CONTENT_TRANSFER,  // TODO, for transfer encoding
+    } response_stage;
 };
 #endif
