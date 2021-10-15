@@ -1,6 +1,9 @@
 #ifndef _TINYHTTP_CLIENT_STRUCT
 #define _TINYHTTP_CLIENT_STRUCT
 struct http_headers;
+struct http_io_client;
+
+typedef void (*http_client_free_handler)(struct http_io_client *c);
 
 // Higher level struct for clients
 struct http_client_data {
@@ -18,5 +21,7 @@ struct http_client_data {
         HTTP_RESPONSE_STAGE_CONTENT,  // ...
         HTTP_RESPONSE_STAGE_CONTENT_TRANSFER,  // TODO, for transfer encoding
     } response_stage;
+
+    http_client_free_handler free_handler;  // higher level free handler
 };
 #endif

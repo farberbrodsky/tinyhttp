@@ -6,6 +6,7 @@
 #include "stdint.h"
 #include "tinyhttp.h"
 
+static void header_free_handler(struct http_io_client *c);
 size_t header_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
     uint32_t end_of_headers = be32toh(0x0d0a0d0a);
     uint32_t http = be32toh(0x48545450);
@@ -20,6 +21,8 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
         headers_struct->headers = NULL;
         c->client_data.headers = headers_struct;
         headers_struct->header[0] = '\0';
+
+        http_io_client_set_free_handler(c, header_free_handler);
     }
 
     unsigned int h_len = (uintptr_t)*datap;  // store length directly in datap
@@ -85,7 +88,10 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
     return final_count;
 }
 
-void header_free_handler(struct http_io_client *c) {
+// Frees headers from c->client_data
+static void header_free_handler(struct http_io_client *c) {
+    if (c->client_data.free_handler != NULL) c->client_data.free_handler(c);
+
     struct http_headers *headers_struct = c->client_data.headers;
     if (headers_struct == NULL) return;
     free(headers_struct->headers);
@@ -162,4 +168,8 @@ void http_response_send_content(struct http_io_client *c, char *buf, size_t coun
         return;
     }
     http_client_write(c, buf, count);
+}
+
+void http_client_set_free_handler(struct http_io_client *c, http_client_free_handler free_handler) {
+    c->client_data.free_handler = free_handler;
 }
