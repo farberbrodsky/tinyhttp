@@ -85,13 +85,14 @@ static void new_client_handler(struct http_io_client *c) {
 }
 
 static void err_handler(struct http_io_client *c, int err) {
-    char *s;
     if (err == HTTP_EHEADERTOOLARGE) {
-        s = "HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 17\r\n\r\nHeaders Too Large";
+        http_response_set_status(c, "431 Request Header Fields Too Large");
     } else {
-        s = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 12\r\n\r\nServer Error";
+        http_response_set_status(c, "500 Internal Server Error");
     }
-    http_client_write(c, s, strlen(s));
+    http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
+    http_response_set_content_length(c, 12);
+    http_response_send_content(c, "Server Error", 12);
 }
 
 int main() {
