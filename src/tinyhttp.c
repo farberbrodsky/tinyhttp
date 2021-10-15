@@ -11,19 +11,19 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
     uint32_t http = be32toh(0x48545450);
     uint16_t newline = be16toh(0x0d0a);
 
-    struct http_headers *custom_data = c->custom_data;
+    struct http_headers *headers_struct = c->client_data.headers;
 
-    if (custom_data == NULL) {
-        custom_data = malloc(sizeof(struct http_headers));
-        custom_data->path = NULL;
-        custom_data->method = NULL;
-        custom_data->headers = NULL;
-        c->custom_data = custom_data;
-        custom_data->header[0] = '\0';
+    if (headers_struct == NULL) {
+        headers_struct = malloc(sizeof(struct http_headers));
+        headers_struct->path = NULL;
+        headers_struct->method = NULL;
+        headers_struct->headers = NULL;
+        c->client_data.headers = headers_struct;
+        headers_struct->header[0] = '\0';
     }
 
     unsigned int h_len = (uintptr_t)*datap;  // store length directly in datap
-    char *header = custom_data->header;
+    char *header = headers_struct->header;
 
     size_t final_count = 0;
     for (size_t i = 0; i < count; i++) {
@@ -40,21 +40,21 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
 
             // check http version
             while (h_ptr != h_end && *((uint32_t *)h_ptr) != http) ++h_ptr;
-            custom_data->http_ver = h_ptr;
+            headers_struct->http_ver = h_ptr;
             while (h_ptr != h_end && *((uint16_t *)h_ptr) != newline) ++h_ptr;
             *h_ptr = '\0';
-            if (strcmp(custom_data->http_ver, "HTTP/1.1") != 0) {
+            if (strcmp(headers_struct->http_ver, "HTTP/1.1") != 0) {
                 http_client_close_on_error(c, HTTP_EGENERIC);  // not http/1.1, this is bad
                 break;
             }
 
             // look for method and path
             h_ptr = header;
-            custom_data->method = h_ptr;
-            while (h_ptr != custom_data->http_ver && *h_ptr != ' ') ++h_ptr;
+            headers_struct->method = h_ptr;
+            while (h_ptr != headers_struct->http_ver && *h_ptr != ' ') ++h_ptr;
             *h_ptr = '\0';
-            custom_data->path = ++h_ptr;
-            while (h_ptr != custom_data->http_ver && *h_ptr != ' ') ++h_ptr;
+            headers_struct->path = ++h_ptr;
+            while (h_ptr != headers_struct->http_ver && *h_ptr != ' ') ++h_ptr;
             *h_ptr = '\0';
 
             // rest of the headers...
@@ -70,8 +70,8 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
                 headers[i + 1] = NULL;
             }
 
-            custom_data->headers = headers;
-            http_io_client_read_handler rd_handler = ((http_request_router)(arg))(custom_data);
+            headers_struct->headers = headers;
+            http_io_client_read_handler rd_handler = ((http_request_router)(arg))(headers_struct);
             if (rd_handler == NULL) {
                 // client close
                 http_client_close_on_error(c, HTTP_EGENERIC);
@@ -86,10 +86,10 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
 }
 
 void header_free_handler(struct http_io_client *c) {
-    struct http_headers *custom_data = c->custom_data;
-    if (custom_data == NULL) return;
-    free(custom_data->headers);
-    free(custom_data);
+    struct http_headers *headers_struct = c->client_data.headers;
+    if (headers_struct == NULL) return;
+    free(headers_struct->headers);
+    free(headers_struct);
 }
 
 char *http_header_by_name(struct http_headers *h, char *name) {

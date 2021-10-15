@@ -2,6 +2,7 @@
 #define _TINYHTTP_IO_H
 #include <unistd.h>
 #include <stdbool.h>
+#include "tinyhttp_client_struct.h"
 
 #define BACKLOG 32
 #define MAX_EPOLL_EVENTS 8
@@ -25,7 +26,7 @@ typedef size_t (*http_io_client_read_handler)(struct http_io_client *c, const ch
 typedef void (*http_io_client_free_handler)(struct http_io_client *c);
 
 struct http_io_client {
-    void *custom_data;
+    struct http_client_data client_data;
     int fd;
 
     http_io_client_read_handler rd_handler;

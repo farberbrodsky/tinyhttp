@@ -9,11 +9,11 @@
 #include "tinyhttp.h"
 
 static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
-    struct http_headers *custom_data = c->custom_data;
+    struct http_headers *headers_struct = c->client_data.headers;
 
-    printf("HTTP version %s method %s path %s\n", custom_data->http_ver, custom_data->method, custom_data->path);
+    printf("HTTP version %s method %s path %s\n", headers_struct->http_ver, headers_struct->method, headers_struct->path);
     printf("Headers are:\n");
-    char **headers = custom_data->headers;
+    char **headers = headers_struct->headers;
     while (*headers != NULL) printf("%s\n", *(headers++));
 
     struct http_response r = http_response_init(c, "200 OK");
@@ -26,10 +26,10 @@ static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t 
 }
 
 static size_t content_req_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
-    struct http_headers *custom_data = c->custom_data;
+    struct http_headers *headers_struct = c->client_data.headers;
     if (*datap == 0) {
         // Read content length
-        char *content_length = http_header_by_name(custom_data, "content-length");
+        char *content_length = http_header_by_name(headers_struct, "content-length");
         if (content_length == NULL) {
             http_client_close_on_error(c, HTTP_EGENERIC);
             return count;
@@ -41,9 +41,9 @@ static size_t content_req_handler(struct http_io_client *c, const char *buf, siz
         }
         *datap = (void *)content_length_val + 1;  // how many bytes we need, plus 1
 
-        printf("HTTP version %s method %s path %s\n", custom_data->http_ver, custom_data->method, custom_data->path);
+        printf("HTTP version %s method %s path %s\n", headers_struct->http_ver, headers_struct->method, headers_struct->path);
         printf("Headers are:\n");
-        char **headers = custom_data->headers;
+        char **headers = headers_struct->headers;
         while (*headers != NULL) printf("%s\n", *(headers++));
     }
     if (count > 0) {  // print the received bytes
