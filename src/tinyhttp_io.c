@@ -224,9 +224,7 @@ static void http_io_respond() {
             struct http_io_client *c = http_io_clients[peer_fd];
             if (c == NULL) continue;
 
-            int close_socket = c->should_be_removed && c->write_buf_start == c->write_buf_end;
-
-            if (events[i].events & (EPOLLIN | EPOLLHUP) && !c->should_be_removed) {
+            if (!c->should_be_removed && events[i].events & (EPOLLIN | EPOLLHUP)) {
                 char buf[READ_BUF_SIZE];
                 ssize_t read_count = 0;
 
@@ -235,35 +233,32 @@ static void http_io_respond() {
                 }
 
                 char *buf_p = buf;
-                while (read_count > 0 || (buf_p = buf, read_count = read(peer_fd, buf, READ_BUF_SIZE)) > 0) {
+                while (!c->should_be_removed && 
+                        (read_count > 0 || (buf_p = buf, read_count = read(peer_fd, buf, READ_BUF_SIZE)) > 0)) {
                     size_t cnt = c->rd_handler(c, buf_p, read_count, c->rd_handler_arg, &c->rd_handler_data);
                     read_count -= cnt;
                     buf_p += cnt;
                 }
                 if (events[i].events & EPOLLHUP || read_count == 0 || (read_count == -1 && errno != EAGAIN)) {
-                    close_socket = 2;
+                    c->should_be_removed = true;  // nothing to read anymore
                 }
             }
 
-            if (close_socket) {
-                // printf("Closed: %d\n", peer_fd);
+            // if possible, write stuff out from the buffer
+            if (http_io_clients[peer_fd] != NULL && events[i].events & EPOLLOUT) {
+                // printf("Ready for out %d!\n", peer_fd);
+                http_client_write(c, NULL, 0);
+            }
 
+            // remove c only if the write buf is done
+            if (c->should_be_removed && c->write_buf_start == c->write_buf_end) {
                 if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) != 0) {
                     perror("couldn't remove");
                     exit(1);
                 }
 
-                if (close_socket == 1) {
-                    close(peer_fd);
-                }
-
                 close(peer_fd);
                 free_http_io_client(peer_fd);
-            }
-            // check is here because it might have closed
-            if (http_io_clients[peer_fd] != NULL && events[i].events & EPOLLOUT) {
-                // printf("Ready for out %d!\n", peer_fd);
-                http_client_write(c, NULL, 0);
             }
         }
     }

@@ -10,19 +10,18 @@
 
 static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
     struct http_headers *custom_data = c->custom_data;
-    if (*datap == 0) {
-        printf("HTTP version %s method %s path %s\n", custom_data->http_ver, custom_data->method, custom_data->path);
-        printf("Headers are:\n");
-        char **headers = custom_data->headers;
-        while (*headers != NULL) printf("%s\n", *(headers++));
 
-        struct http_response r = http_response_init(c, "200 OK");
-        http_response_set_header(&r, "Content-Type", "text/plain; charset=utf-8");
-        http_response_set_content_length(&r, 4);
-        http_response_send_content(&r, "1337", 4);
-        ++(*datap);
-        http_client_close(c);
-    }
+    printf("HTTP version %s method %s path %s\n", custom_data->http_ver, custom_data->method, custom_data->path);
+    printf("Headers are:\n");
+    char **headers = custom_data->headers;
+    while (*headers != NULL) printf("%s\n", *(headers++));
+
+    struct http_response r = http_response_init(c, "200 OK");
+    http_response_set_header(&r, "Content-Type", "text/plain; charset=utf-8");
+    http_response_set_content_length(&r, 4);
+    http_response_send_content(&r, "1337", 4);
+    http_client_close(c);
+
     return count;
 }
 
