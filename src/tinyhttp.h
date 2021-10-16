@@ -29,6 +29,9 @@ char *http_header_by_name(struct http_headers *h, char *name);
 
 // RESPONSE CONSTRUCTION
 // e.g. c, "200 OK"
+#define HTTP_200_OK "200 OK"
+#define HTTP_431_REQUEST_HEADER_FIELDS_TOO_LARGE "431 Request Header Fields Too Large"
+#define HTTP_500_INTERNAL_SERVER_ERROR "500 Internal Server Error"
 void http_response_set_status(struct http_io_client *c, char *status);
 // e.g. "Content-Type", "application/whatever"
 void http_response_set_header(struct http_io_client *c, char *key, char *value);

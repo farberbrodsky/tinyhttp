@@ -16,7 +16,7 @@ static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t 
     char **headers = headers_struct->headers;
     while (*headers != NULL) printf("%s\n", *(headers++));
 
-    http_response_set_status(c, "200 OK");
+    http_response_set_status(c, HTTP_200_OK);
     http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
     http_response_set_content_length(c, 4);
     http_response_send_content(c, "1337", 4);
@@ -54,7 +54,7 @@ static size_t content_req_handler(struct http_io_client *c, const char *buf, siz
         *datap -= count;
     }
     if (*datap == (void *)1) {  // done reading
-        http_response_set_status(c, "200 OK");
+        http_response_set_status(c, HTTP_200_OK);
         http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
         http_response_set_content_length(c, 4);
         http_response_send_content(c, "1337", 4);
@@ -84,9 +84,9 @@ static void new_client_handler(struct http_io_client *c) {
 
 static void err_handler(struct http_io_client *c, int err) {
     if (err == HTTP_EHEADERTOOLARGE) {
-        http_response_set_status(c, "431 Request Header Fields Too Large");
+        http_response_set_status(c, HTTP_431_REQUEST_HEADER_FIELDS_TOO_LARGE);
     } else {
-        http_response_set_status(c, "500 Internal Server Error");
+        http_response_set_status(c, HTTP_500_INTERNAL_SERVER_ERROR);
     }
     http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
     http_response_set_content_length(c, 12);
