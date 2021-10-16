@@ -126,7 +126,7 @@ void http_response_set_status(struct http_io_client *c, char *status) {
     memcpy(full_status_line + sizeof(http_1_1_), status, status_len);
     full_status_line[full_status_line_len - 2] = '\r';
     full_status_line[full_status_line_len - 1] = '\n';
-    http_client_write(c, full_status_line, full_status_line_len);
+    http_io_client_write(c, full_status_line, full_status_line_len);
     c->client_data.response_stage = HTTP_RESPONSE_STAGE_HEADERS;
 }
 
@@ -145,7 +145,7 @@ void http_response_set_header(struct http_io_client *c, char *key, char *val) {
     memcpy(header + key_len + 1, val, val_len);
     header[header_len - 2] = '\r';
     header[header_len - 1] = '\n';
-    http_client_write(c, header, header_len);
+    http_io_client_write(c, header, header_len);
     free(header);
 }
 
@@ -173,7 +173,7 @@ void http_response_send_content(struct http_io_client *c, char *buf, size_t coun
         }
     }
     // TODO write length before the message if it's in transfer mode
-    http_client_write(c, buf, count);
+    http_io_client_write(c, buf, count);
 }
 
 void http_client_set_free_handler(struct http_io_client *c, http_client_free_handler free_handler) {

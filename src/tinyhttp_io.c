@@ -53,7 +53,7 @@ static void free_http_io_client(int fd) {
 }
 
 // count=0 is for writing as much as possible
-void http_client_write(struct http_io_client *c, const char *buf, size_t count) {
+void http_io_client_write(struct http_io_client *c, const char *buf, size_t count) {
     size_t r_count = count;  // remaining count
     if (r_count > 0) {
         // add some of buf to the write buffer if there is already space
@@ -247,7 +247,7 @@ static void http_io_respond() {
             // if possible, write stuff out from the buffer
             if (http_io_clients[peer_fd] != NULL && events[i].events & EPOLLOUT) {
                 // printf("Ready for out %d!\n", peer_fd);
-                http_client_write(c, NULL, 0);
+                http_io_client_write(c, NULL, 0);
             }
 
             // remove c only if the write buf is done or if c closed already

@@ -42,7 +42,7 @@ struct http_io_client {
     unsigned int write_buf_size;
 };
 
-void http_client_write(struct http_io_client *c, const char *buf, size_t count);
+void http_io_client_write(struct http_io_client *c, const char *buf, size_t count);
 void http_client_close(struct http_io_client *c);
 void http_client_close_on_error(struct http_io_client *c, int err);
 
