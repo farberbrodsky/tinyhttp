@@ -18,7 +18,8 @@ static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t 
 
     http_response_set_status(c, HTTP_200_OK);
     http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
-    http_response_set_content_length(c, 4);
+    // http_response_set_content_length(c, 4);
+    // if you do not pass a content length it uses transfer-encoding: chunked
     http_response_send_content(c, "1337", 4);
     http_client_close(c);
 
@@ -94,8 +95,12 @@ static void err_handler(struct http_io_client *c, int err) {
 }
 
 int main() {
-    printf("Hello world!\n");
-    return http_serve(8080, new_client_handler, err_handler);
+    for (int i = 8080; i < 8100; i++) {
+        printf("On port %d\n", i);
+        http_serve(i, new_client_handler, err_handler);
+    }
+    printf("On port %d\n", 8100);
+    return http_serve(8100, new_client_handler, err_handler);
 }
 
 #endif

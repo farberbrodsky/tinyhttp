@@ -6,7 +6,7 @@
 #include "stdint.h"
 #include "tinyhttp.h"
 
-static void header_free_handler(struct http_io_client *c);
+static void http_free_handler(struct http_io_client *c);
 size_t header_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
     uint32_t end_of_headers = be32toh(0x0d0a0d0a);
     uint32_t http = be32toh(0x48545450);
@@ -22,7 +22,7 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
         c->client_data.headers = headers_struct;
         headers_struct->header[0] = '\0';
 
-        http_io_client_set_free_handler(c, header_free_handler);
+        http_io_client_set_free_handler(c, http_free_handler);
     }
 
     unsigned int h_len = (uintptr_t)*datap;  // store length directly in datap
@@ -88,14 +88,20 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
     return final_count;
 }
 
-// Frees headers from c->client_data
-static void header_free_handler(struct http_io_client *c) {
+// Frees headers from c->client_data and finishes some encodings
+static void http_free_handler(struct http_io_client *c) {
     if (c->client_data.free_handler != NULL) c->client_data.free_handler(c);
 
     struct http_headers *headers_struct = c->client_data.headers;
     if (headers_struct == NULL) return;
     free(headers_struct->headers);
     free(headers_struct);
+
+    if (c->client_data.response_stage == HTTP_RESPONSE_STAGE_CONTENT_TRANSFER_CHUNKED) {
+        http_io_client_write(c, "0\r\n\r\n", 5);
+    } else if (c->client_data.response_stage == HTTP_RESPONSE_STAGE_HEADERS) {
+        http_io_client_write(c, "\r\n", 2);
+    }
 }
 
 char *http_header_by_name(struct http_headers *h, char *name) {
@@ -116,7 +122,7 @@ char *http_header_by_name(struct http_headers *h, char *name) {
 }
 
 
-static char http_1_1_[] = {'H', 'T', 'T', 'P', '/', '1', '.', '1', ' '};
+static const char http_1_1_[] = {'H', 'T', 'T', 'P', '/', '1', '.', '1', ' '};
 
 void http_response_set_status(struct http_io_client *c, char *status) {
     size_t status_len = strlen(status);
@@ -165,15 +171,23 @@ void http_response_set_content_length(struct http_io_client *c, size_t content_l
 void http_response_send_content(struct http_io_client *c, char *buf, size_t count) {
     if (c->client_data.response_stage != HTTP_RESPONSE_STAGE_CONTENT) {
         if (c->client_data.response_stage == HTTP_RESPONSE_STAGE_HEADERS) {
-            // go to transfer
+            // go to transfer chunked
+            http_response_set_header(c, "Transfer-Encoding", "chunked\r\n");
             c->client_data.response_stage = HTTP_RESPONSE_STAGE_CONTENT_TRANSFER_CHUNKED;
         } else {
             fputs("http_response_send_content: wrong stage!\n", stderr);
             return;
         }
     }
-    // TODO write length before the message if it's in transfer mode
-    http_io_client_write(c, buf, count);
+    if (c->client_data.response_stage == HTTP_RESPONSE_STAGE_CONTENT_TRANSFER_CHUNKED) {
+        char count_str[32];
+        int count_str_len = snprintf(count_str, sizeof(count_str), "%zu\r\n", count);
+        http_io_client_write(c, count_str, count_str_len);
+        http_io_client_write(c, buf, count);
+        http_io_client_write(c, "\r\n", 2);
+    } else {
+        http_io_client_write(c, buf, count);
+    }
 }
 
 void http_client_set_free_handler(struct http_io_client *c, http_client_free_handler free_handler) {

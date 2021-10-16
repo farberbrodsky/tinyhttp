@@ -46,7 +46,6 @@ static void free_http_io_client(int fd) {
     struct http_io_client *c = http_io_clients[fd];
     if (c == NULL) return;
 
-    if (c->free_handler != NULL) c->free_handler(c);
     free(c->write_buf);
     free(c);
     http_io_clients[fd] = NULL;
@@ -150,11 +149,13 @@ int http_serve(int port_num, http_io_client_new_handler new_handler, http_io_cli
         return -2;
     }
     if (bind(server_fd, addrinfo_result->ai_addr, addrinfo_result->ai_addrlen) != 0) {
+        close(server_fd);
         return -3;
     }
     freeaddrinfo(addrinfo_result);
 
     if (listen(server_fd, BACKLOG) != 0) {
+        close(server_fd);
         return -4;
     }
 
@@ -244,6 +245,7 @@ static void http_io_respond() {
                 }
             }
 
+http_respond_writeout:
             // if possible, write stuff out from the buffer
             if (http_io_clients[peer_fd] != NULL && events[i].events & EPOLLOUT) {
                 // printf("Ready for out %d!\n", peer_fd);
@@ -253,6 +255,16 @@ static void http_io_respond() {
             // remove c only if the write buf is done or if c closed already
             if (events[i].events & EPOLLHUP ||
                     (c->should_be_removed && c->write_buf_start == c->write_buf_end)) {
+                if (c->free_handler != NULL) {
+                    c->free_handler(c);
+                    c->free_handler = NULL;
+                    // free handler may have written stuff
+                    if (!(events[i].events & EPOLLHUP)
+                            && c->write_buf_start != c->write_buf_end) {
+                        goto http_respond_writeout;
+                    }
+                }
+
                 if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) != 0) {
                     perror("couldn't remove");
                     exit(1);
