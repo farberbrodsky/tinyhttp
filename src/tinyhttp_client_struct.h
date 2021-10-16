@@ -19,7 +19,7 @@ struct http_client_data {
         HTTP_RESPONSE_STAGE_STATUS,   // HTTP/1.1 200 OK
         HTTP_RESPONSE_STAGE_HEADERS,  // Content-Type: application/whatever
         HTTP_RESPONSE_STAGE_CONTENT,  // ...
-        HTTP_RESPONSE_STAGE_CONTENT_TRANSFER,  // TODO, for transfer encoding
+        HTTP_RESPONSE_STAGE_CONTENT_TRANSFER_CHUNKED,  // TODO, for transfer encoding
     } response_stage;
 
     http_client_free_handler free_handler;  // higher level free handler

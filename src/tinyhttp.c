@@ -164,12 +164,22 @@ void http_response_set_content_length(struct http_io_client *c, size_t content_l
 
 void http_response_send_content(struct http_io_client *c, char *buf, size_t count) {
     if (c->client_data.response_stage != HTTP_RESPONSE_STAGE_CONTENT) {
-        fputs("http_response_send_content: wrong stage!\n", stderr);
-        return;
+        if (c->client_data.response_stage == HTTP_RESPONSE_STAGE_HEADERS) {
+            // go to transfer
+            c->client_data.response_stage = HTTP_RESPONSE_STAGE_CONTENT_TRANSFER_CHUNKED;
+        } else {
+            fputs("http_response_send_content: wrong stage!\n", stderr);
+            return;
+        }
     }
+    // TODO write length before the message if it's in transfer mode
     http_client_write(c, buf, count);
 }
 
 void http_client_set_free_handler(struct http_io_client *c, http_client_free_handler free_handler) {
     c->client_data.free_handler = free_handler;
+}
+
+void http_client_set_router(struct http_io_client *c, http_request_router router) {
+    http_io_client_set_read_handler(c, header_read_handler, router);
 }

@@ -250,8 +250,9 @@ static void http_io_respond() {
                 http_client_write(c, NULL, 0);
             }
 
-            // remove c only if the write buf is done
-            if (c->should_be_removed && c->write_buf_start == c->write_buf_end) {
+            // remove c only if the write buf is done or if c closed already
+            if (events[i].events & EPOLLHUP ||
+                    (c->should_be_removed && c->write_buf_start == c->write_buf_end)) {
                 if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) != 0) {
                     perror("couldn't remove");
                     exit(1);

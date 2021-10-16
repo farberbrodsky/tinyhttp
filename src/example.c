@@ -63,8 +63,8 @@ static size_t content_req_handler(struct http_io_client *c, const char *buf, siz
     return count;
 }
 
-static http_io_client_read_handler my_request_router(struct http_headers *data) {
-    if (strcmp(data->method, "GET") == 0) {
+static http_io_client_read_handler my_request_router(struct http_headers *headers) {
+    if (strcmp(headers->method, "GET") == 0) {
         return get_req_handler;
     } else {
         return content_req_handler;
@@ -77,8 +77,7 @@ void logging_free(struct http_io_client *c) {
 
 static void new_client_handler(struct http_io_client *c) {
     printf("Connection!!! %d\n", c->fd);
-    // Read the headers, then call my_request_router to find the right handler
-    http_io_client_set_read_handler(c, header_read_handler, my_request_router);
+    http_client_set_router(c, my_request_router);
     // If the client disconnects, log it
     http_client_set_free_handler(c, logging_free);
 }

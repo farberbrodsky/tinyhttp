@@ -39,5 +39,7 @@ void http_response_send_content(struct http_io_client *c, char *buf, size_t coun
 
 // Sets your free handler, plus the header free handler
 void http_client_set_free_handler(struct http_io_client *c, http_client_free_handler free_handler);
+// Equivalent to http_io_client_set_read_handler(c, header_read_handler, router)
+void http_client_set_router(struct http_io_client *c, http_request_router router);
 
 #endif
