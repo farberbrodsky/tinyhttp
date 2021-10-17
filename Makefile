@@ -14,4 +14,4 @@ build/tinyhttp_io.o: src/tinyhttp_io.c src/tinyhttp_io.h src/tinyhttp_client_str
 	$(CC) $(CCFLAGS) -c src/tinyhttp_io.c -o build/tinyhttp_io.o
 
 clean:
-	rm -f build/*.o build/tinyhttp build/example
+	rm -f build/*.o build/example

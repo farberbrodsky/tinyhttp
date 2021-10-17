@@ -1,9 +1,11 @@
 #ifndef _TINYHTTP_CLIENT_STRUCT
 #define _TINYHTTP_CLIENT_STRUCT
+#include <stddef.h>
 struct http_headers;
 struct http_io_client;
 
 typedef void (*http_client_free_handler)(struct http_io_client *c);
+typedef size_t (*http_io_client_read_handler)(struct http_io_client *c, const char *buf, size_t count, void *arg, void **data);
 
 // Higher level struct for clients
 struct http_client_data {
@@ -23,5 +25,6 @@ struct http_client_data {
     } response_stage;
 
     http_client_free_handler free_handler;  // higher level free handler
+    size_t __content_len;  // used by higher level read handler
 };
 #endif

@@ -283,6 +283,11 @@ void http_io_client_set_read_handler(struct http_io_client *c, http_io_client_re
     c->rd_handler_arg = arg;
 }
 
+void http_io_client_set_read_handler_immediate(struct http_io_client *c, http_io_client_read_handler rd_handler, void *arg) {
+    http_io_client_set_read_handler(c, rd_handler, arg);
+    c->rd_handler(c, NULL, 0, arg, &c->rd_handler_data);
+}
+
 void http_io_client_set_free_handler(struct http_io_client *c, http_io_client_free_handler free_handler) {
     c->free_handler = free_handler;
 }

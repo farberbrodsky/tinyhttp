@@ -30,17 +30,12 @@ static size_t content_req_handler(struct http_io_client *c, const char *buf, siz
     struct http_headers *headers_struct = c->client_data.headers;
     if (*datap == 0) {
         // Read content length
-        char *content_length = http_header_by_name(headers_struct, "content-length");
-        if (content_length == NULL) {
+        printf("Content length is %zu\n", (size_t)arg);
+        if ((size_t)arg == SIZE_MAX) {
             http_client_close_on_error(c, HTTP_EGENERIC);
             return count;
         }
-        long long content_length_val = strtoll(content_length, NULL, 10);
-        if (content_length_val == LLONG_MIN || content_length_val == LLONG_MAX) {
-            http_client_close_on_error(c, HTTP_EGENERIC);
-            return count;
-        }
-        *datap = (void *)content_length_val + 1;  // how many bytes we need, plus 1
+        *datap = arg + 1;  // how many bytes we need, plus 1
 
         printf("HTTP version %s method %s path %s\n", headers_struct->http_ver, headers_struct->method, headers_struct->path);
         printf("Headers are:\n");

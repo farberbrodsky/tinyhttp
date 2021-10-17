@@ -40,6 +40,9 @@ void http_response_set_content_length(struct http_io_client *c, size_t content_l
 // You can send your content in parts
 void http_response_send_content(struct http_io_client *c, char *buf, size_t count);
 
+// A higher level read handler, which parses content-length or transfer-encoding
+// The argument it passes to your read handler is how long the content is, or SIZE_MAX if not known
+void http_client_set_read_handler(struct http_io_client *c, http_io_client_read_handler rd_handler);
 // Sets your free handler, plus the header free handler
 void http_client_set_free_handler(struct http_io_client *c, http_client_free_handler free_handler);
 // Equivalent to http_io_client_set_read_handler(c, header_read_handler, router)

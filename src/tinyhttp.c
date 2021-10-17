@@ -80,8 +80,7 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
                 http_client_close_on_error(c, HTTP_EGENERIC);
                 break;
             }
-            http_io_client_set_read_handler(c, rd_handler, NULL);
-            rd_handler(c, buf, 0, NULL, datap);
+            http_client_set_read_handler(c, rd_handler);
             break;
         }
     }
@@ -188,6 +187,29 @@ void http_response_send_content(struct http_io_client *c, char *buf, size_t coun
     } else {
         http_io_client_write(c, buf, count);
     }
+}
+
+static size_t http_content_rd_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **data) {
+    // TODO handle chunked encoding
+    return ((http_io_client_read_handler)arg)(c, buf, count, (void *)c->client_data.__content_len, data);
+}
+
+void http_client_set_read_handler(struct http_io_client *c, http_io_client_read_handler rd_handler) {
+    char *transfer_encoding = http_header_by_name(c->client_data.headers, "transfer-encoding");
+    size_t content_length = 0;
+    // TODO: do an error if the transfer encoding isn't chunked
+    if (transfer_encoding != NULL && !strcmp(transfer_encoding, "chunked")) {
+        c->client_data.request_encoding = HTTP_REQUEST_ENCODING_CHUNKED;
+        content_length = SIZE_MAX;
+    } else {
+        c->client_data.request_encoding = HTTP_REQUEST_ENCODING_NORMAL;
+        char *content_length_s = http_header_by_name(c->client_data.headers, "content-length");
+        if (content_length_s != NULL) {
+            content_length = strtoll(content_length_s, NULL, 10);
+        }
+    }
+    c->client_data.__content_len = content_length;
+    http_io_client_set_read_handler_immediate(c, http_content_rd_handler, rd_handler);
 }
 
 void http_client_set_free_handler(struct http_io_client *c, http_client_free_handler free_handler) {
