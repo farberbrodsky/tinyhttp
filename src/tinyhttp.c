@@ -62,8 +62,9 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
 
             // rest of the headers...
             for (int i = 0; i < 10; i++) {
-                while (h_ptr != h_end && *h_ptr != '\n') ++h_ptr;
-                *(h_ptr++) = '\0';
+                while (h_ptr != h_end && *h_ptr != '\r') ++h_ptr;
+                *h_ptr = '\0';
+                h_ptr += 2;  // \r\n
                 if (h_ptr >= h_end) {
                     h_ptr = h_end;
                     break;
@@ -74,7 +75,7 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
             }
 
             headers_struct->headers = headers;
-            http_io_client_read_handler rd_handler = ((http_request_router)(arg))(headers_struct);
+            http_client_read_handler rd_handler = ((http_request_router)(arg))(headers_struct);
             if (rd_handler == NULL) {
                 // client close
                 http_client_close_on_error(c, HTTP_EGENERIC);
@@ -95,6 +96,8 @@ static void http_free_handler(struct http_io_client *c) {
     if (headers_struct == NULL) return;
     free(headers_struct->headers);
     free(headers_struct);
+
+    if (c->client_data.http_request_internal != NULL) free(c->client_data.http_request_internal);
 
     if (c->client_data.response_stage == HTTP_RESPONSE_STAGE_CONTENT_TRANSFER_CHUNKED) {
         http_io_client_write(c, "0\r\n\r\n", 5);
@@ -180,7 +183,7 @@ void http_response_send_content(struct http_io_client *c, char *buf, size_t coun
     }
     if (c->client_data.response_stage == HTTP_RESPONSE_STAGE_CONTENT_TRANSFER_CHUNKED) {
         char count_str[32];
-        int count_str_len = snprintf(count_str, sizeof(count_str), "%zu\r\n", count);
+        int count_str_len = snprintf(count_str, sizeof(count_str), "%zX\r\n", count);
         http_io_client_write(c, count_str, count_str_len);
         http_io_client_write(c, buf, count);
         http_io_client_write(c, "\r\n", 2);
@@ -189,18 +192,69 @@ void http_response_send_content(struct http_io_client *c, char *buf, size_t coun
     }
 }
 
+struct http_request_internal {
+    size_t chunk_size;
+    int chunk_line_buf_len;
+    char chunk_line_buf[32];
+};
+
 static size_t http_content_rd_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **data) {
-    // TODO handle chunked encoding
-    return ((http_io_client_read_handler)arg)(c, buf, count, (void *)c->client_data.__content_len, data);
+    if (c->client_data.request_encoding == HTTP_REQUEST_ENCODING_CHUNKED) {
+        struct http_request_internal *i = c->client_data.http_request_internal;
+        if (i->chunk_size != 0) {
+            if (count > i->chunk_size)
+                count = i->chunk_size;
+            size_t result = ((http_client_read_handler)arg)(c, buf, count, c->client_data.__content_len, data);
+
+            if (i->chunk_size == SIZE_MAX) // first run
+                i->chunk_size = 0;
+            else
+                i->chunk_size -= result;
+            return result;
+        } else {
+            size_t result = 0;
+            // read the next line for chunk size
+            while (result < count && (
+                (i->chunk_line_buf_len < 3) ||
+                (i->chunk_line_buf[i->chunk_line_buf_len - 2] != '\r' || i->chunk_line_buf[i->chunk_line_buf_len - 1] != '\n'))) {
+                i->chunk_line_buf[i->chunk_line_buf_len++] = *(buf++);
+                result++;
+
+                if (i->chunk_line_buf_len >= 31) {
+                    http_client_close_on_error(c, HTTP_EGENERIC);
+                    return count;
+                }
+            }
+            if (i->chunk_line_buf[i->chunk_line_buf_len - 2] == '\r' && i->chunk_line_buf[i->chunk_line_buf_len - 1] == '\n') {
+                // we got a chunk line! that has the chunk size
+                i->chunk_line_buf[i->chunk_line_buf_len] = '\0';
+                if (i->chunk_line_buf[0] == '\r')
+                    sscanf(i->chunk_line_buf + 2, "%zX", &i->chunk_size);
+                else
+                    sscanf(i->chunk_line_buf, "%zX", &i->chunk_size);
+                i->chunk_line_buf_len = 0;
+                if (i->chunk_size == 0) {
+                    // the last chunk
+                    return ((http_client_read_handler)arg)(c, NULL, 0, c->client_data.__content_len, data);
+                }
+            }
+            return result;
+        }
+    } else {
+        return ((http_client_read_handler)arg)(c, buf, count, c->client_data.__content_len, data);
+    }
 }
 
-void http_client_set_read_handler(struct http_io_client *c, http_io_client_read_handler rd_handler) {
+void http_client_set_read_handler(struct http_io_client *c, http_client_read_handler rd_handler) {
     char *transfer_encoding = http_header_by_name(c->client_data.headers, "transfer-encoding");
     size_t content_length = 0;
     // TODO: do an error if the transfer encoding isn't chunked
     if (transfer_encoding != NULL && !strcmp(transfer_encoding, "chunked")) {
         c->client_data.request_encoding = HTTP_REQUEST_ENCODING_CHUNKED;
         content_length = SIZE_MAX;
+        struct http_request_internal *i = calloc(1, sizeof(struct http_request_internal));
+        i->chunk_size = SIZE_MAX;  // on first run, it is SIZE_MAX
+        c->client_data.http_request_internal = i;
     } else {
         c->client_data.request_encoding = HTTP_REQUEST_ENCODING_NORMAL;
         char *content_length_s = http_header_by_name(c->client_data.headers, "content-length");

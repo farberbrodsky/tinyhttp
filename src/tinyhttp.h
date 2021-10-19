@@ -15,7 +15,8 @@ struct http_headers {
 
 #define HTTP_EGENERIC 0
 #define HTTP_EHEADERTOOLARGE 3
-typedef http_io_client_read_handler (*http_request_router)(struct http_headers *data);
+typedef size_t (*http_client_read_handler)(struct http_io_client *c, const char *buf, size_t count, size_t content_length, void **data);
+typedef http_client_read_handler (*http_request_router)(struct http_headers *data);
 
 // REQUEST PARSING
 
@@ -42,7 +43,7 @@ void http_response_send_content(struct http_io_client *c, char *buf, size_t coun
 
 // A higher level read handler, which parses content-length or transfer-encoding
 // The argument it passes to your read handler is how long the content is, or SIZE_MAX if not known
-void http_client_set_read_handler(struct http_io_client *c, http_io_client_read_handler rd_handler);
+void http_client_set_read_handler(struct http_io_client *c, http_client_read_handler rd_handler);
 // Sets your free handler, plus the header free handler
 void http_client_set_free_handler(struct http_io_client *c, http_client_free_handler free_handler);
 // Equivalent to http_io_client_set_read_handler(c, header_read_handler, router)

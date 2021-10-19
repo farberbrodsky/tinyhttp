@@ -8,6 +8,6 @@ Currently supported:
 - [x] Utilities for reading specific headers (e.g. get the Content-Length)
 - [x] Utilities for constructing HTTP responses
 - [x] Transfer-Encoding: chunked responses
-- [ ] Transfer-Encoding: chunked requests
+- [x] Transfer-Encoding: chunked requests
 - [ ] Utilities for parsing parameters in the URL (e.g. /search?q=AAAAAA)
 - [ ] Full RFC2616 Standard compliance

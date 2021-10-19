@@ -8,7 +8,7 @@
 #include <limits.h>
 #include "tinyhttp.h"
 
-static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
+static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t count, size_t content_length, void **datap) {
     struct http_headers *headers_struct = c->client_data.headers;
 
     printf("HTTP version %s method %s path %s\n", headers_struct->http_ver, headers_struct->method, headers_struct->path);
@@ -26,16 +26,16 @@ static size_t get_req_handler(struct http_io_client *c, const char *buf, size_t 
     return count;
 }
 
-static size_t content_req_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
+static size_t content_req_handler(struct http_io_client *c, const char *buf, size_t count, size_t content_length, void **datap) {
     struct http_headers *headers_struct = c->client_data.headers;
     if (*datap == 0) {
         // Read content length
-        printf("Content length is %zu\n", (size_t)arg);
-        if ((size_t)arg == SIZE_MAX) {
-            http_client_close_on_error(c, HTTP_EGENERIC);
-            return count;
+        printf("Content length is %zu\n", content_length);
+        if ((size_t)content_length == SIZE_MAX) {
+            *datap = (void *)3;  // will be set to 2 on second run
+        } else {
+            *datap = (void *)content_length + 1;  // how many bytes we need, plus 1
         }
-        *datap = arg + 1;  // how many bytes we need, plus 1
 
         printf("HTTP version %s method %s path %s\n", headers_struct->http_ver, headers_struct->method, headers_struct->path);
         printf("Headers are:\n");
@@ -47,19 +47,20 @@ static size_t content_req_handler(struct http_io_client *c, const char *buf, siz
         fflush(stdout);
         write(1, buf, count);
         printf("\n");
-        *datap -= count;
+        if (content_length != SIZE_MAX) *datap -= count;
     }
-    if (*datap == (void *)1) {  // done reading
+    if (*datap == (void *)1 || (*datap == (void *)2 && content_length == SIZE_MAX && count == 0)) {  // done reading
         http_response_set_status(c, HTTP_200_OK);
         http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
         http_response_set_content_length(c, 4);
         http_response_send_content(c, "1337", 4);
         http_client_close(c);
     }
+    if (content_length == SIZE_MAX) *datap = (void *)2;
     return count;
 }
 
-static http_io_client_read_handler my_request_router(struct http_headers *headers) {
+static http_client_read_handler my_request_router(struct http_headers *headers) {
     if (strcmp(headers->method, "GET") == 0) {
         return get_req_handler;
     } else {

@@ -21,7 +21,7 @@ int http_serve(int port_num, http_io_client_new_handler new_handler, http_io_cli
 // arg can be passed when setting a read handler,
 // and is given as an argument every time.
 // You are responsible for allocating/freeing *data and freeing arg.
-// This is useful for freeing arg.
+typedef size_t (*http_io_client_read_handler)(struct http_io_client *c, const char *buf, size_t count, void *arg, void **data);
 typedef void (*http_io_client_free_handler)(struct http_io_client *c);
 
 struct http_io_client {
