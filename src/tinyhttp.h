@@ -15,7 +15,7 @@ struct http_headers {
 
 #define HTTP_EGENERIC 0
 #define HTTP_EHEADERTOOLARGE 3
-typedef size_t (*http_client_read_handler)(struct http_io_client *c, const char *buf, size_t count, size_t content_length, void **data);
+typedef size_t (*http_client_read_handler)(struct http_io_client *c, const char *buf, size_t count, size_t content_length, struct http_io_client_extra *extra);
 typedef http_client_read_handler (*http_request_router)(struct http_headers *data);
 
 // REQUEST PARSING
@@ -23,7 +23,7 @@ typedef http_client_read_handler (*http_request_router)(struct http_headers *dat
 // Reads headers, then calls the http_request_router in arg.
 // After that it sets the read handler to the result of the router, with the argument being the headers.
 // The headers are also stored in c->client_data.
-size_t header_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap);
+size_t header_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, struct http_io_client_extra *extra);
 // Returns the value of a header, or NULL if it does not exist
 // name must be lowercase
 char *http_header_by_name(struct http_headers *h, char *name);

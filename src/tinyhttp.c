@@ -7,7 +7,7 @@
 #include "tinyhttp.h"
 
 static void http_free_handler(struct http_io_client *c);
-size_t header_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **datap) {
+size_t header_read_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, struct http_io_client_extra *extra) {
     uint32_t end_of_headers = be32toh(0x0d0a0d0a);
     uint32_t http = be32toh(0x48545450);
     uint16_t newline = be16toh(0x0d0a);
@@ -25,20 +25,20 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
         http_io_client_set_free_handler(c, http_free_handler);
     }
 
-    unsigned int h_len = (uintptr_t)*datap;  // store length directly in datap
+    unsigned int *h_len = (unsigned int *)(&extra->data);  // store length directly in datap
     char *header = headers_struct->header;
 
     size_t final_count = 0;
     for (size_t i = 0; i < count; i++) {
-        if (h_len == MAX_HEADER_SIZE) break;  // TODO should close client, this will probably cause bugs
+        if (*h_len == MAX_HEADER_SIZE) break;  // TODO should close client, this will probably cause bugs
         ++final_count;
-        header[h_len++] = buf[i];
+        header[(*h_len)++] = buf[i];
 
-        if (h_len >= 4 && *(uint32_t *)(&header[h_len - 4]) == end_of_headers) {
+        if (*h_len >= 4 && *(uint32_t *)(&header[*h_len - 4]) == end_of_headers) {
             // parse headers, search for first newline
             // first line is method, path, version
             char *h_ptr = header;
-            char *h_end = header + h_len - 2;
+            char *h_end = header + *h_len - 2;
             char **headers = calloc(1, sizeof(char *));
 
             // check http version
@@ -90,7 +90,7 @@ size_t header_read_handler(struct http_io_client *c, const char *buf, size_t cou
 
 // Frees headers from c->client_data and finishes some encodings
 static void http_free_handler(struct http_io_client *c) {
-    if (c->client_data.free_handler != NULL) c->client_data.free_handler(c);
+    if (c->client_data.free_handler != NULL) c->client_data.free_handler(c, &c->rd_handler_data);
 
     struct http_headers *headers_struct = c->client_data.headers;
     if (headers_struct == NULL) return;
@@ -171,7 +171,8 @@ void http_response_set_content_length(struct http_io_client *c, size_t content_l
 }
 
 void http_response_send_content(struct http_io_client *c, char *buf, size_t count) {
-    if (c->client_data.response_stage != HTTP_RESPONSE_STAGE_CONTENT) {
+    if (c->client_data.response_stage != HTTP_RESPONSE_STAGE_CONTENT
+     && c->client_data.response_stage != HTTP_RESPONSE_STAGE_CONTENT_TRANSFER_CHUNKED) {
         if (c->client_data.response_stage == HTTP_RESPONSE_STAGE_HEADERS) {
             // go to transfer chunked
             http_response_set_header(c, "Transfer-Encoding", "chunked\r\n");
@@ -198,13 +199,13 @@ struct http_request_internal {
     char chunk_line_buf[32];
 };
 
-static size_t http_content_rd_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, void **data) {
+static size_t http_content_rd_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, struct http_io_client_extra *extra) {
     if (c->client_data.request_encoding == HTTP_REQUEST_ENCODING_CHUNKED) {
         struct http_request_internal *i = c->client_data.http_request_internal;
         if (i->chunk_size != 0) {
             if (count > i->chunk_size)
                 count = i->chunk_size;
-            size_t result = ((http_client_read_handler)arg)(c, buf, count, c->client_data.__content_len, data);
+            size_t result = ((http_client_read_handler)arg)(c, buf, count, c->client_data.__content_len, extra);
 
             if (i->chunk_size == SIZE_MAX) // first run
                 i->chunk_size = 0;
@@ -235,13 +236,13 @@ static size_t http_content_rd_handler(struct http_io_client *c, const char *buf,
                 i->chunk_line_buf_len = 0;
                 if (i->chunk_size == 0) {
                     // the last chunk
-                    return ((http_client_read_handler)arg)(c, NULL, 0, c->client_data.__content_len, data);
+                    return ((http_client_read_handler)arg)(c, NULL, 0, c->client_data.__content_len, extra);
                 }
             }
             return result;
         }
     } else {
-        return ((http_client_read_handler)arg)(c, buf, count, c->client_data.__content_len, data);
+        return ((http_client_read_handler)arg)(c, buf, count, c->client_data.__content_len, extra);
     }
 }
 

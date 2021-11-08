@@ -23,70 +23,153 @@ static struct http_io_global_struct {
 static struct http_io_client **http_io_clients = NULL;
 static size_t http_clients_max_fd = 0;
 
-static void alloc_http_client(int fd) {
+// allocate space for this to be a valid index
+static void make_space_for_http_client(int fd) {
     if (fd > http_clients_max_fd) {
         if (http_io_clients != NULL) 
             http_io_clients = realloc(http_io_clients, (fd + 1) * sizeof(struct http_io_client *));
         else
             http_io_clients = calloc(sizeof(struct http_io_client *), fd + 1);
+
+        http_clients_max_fd = fd;
     }
 
     for (int i = http_clients_max_fd + 1; i < fd; i++) {
         http_io_clients[i] = NULL;
     }
+}
 
+static void alloc_http_client(int fd) {
+    make_space_for_http_client(fd);
     http_io_clients[fd] = calloc(1, sizeof(struct http_io_client));
     http_io_clients[fd]->fd = fd;
     http_io_clients[fd]->write_buf = malloc(WRITE_BUF_INITIAL_SIZE);
     http_io_clients[fd]->write_buf_size = WRITE_BUF_INITIAL_SIZE;
-    http_clients_max_fd = fd;
 }
 
 static void free_http_io_client(int fd) {
     struct http_io_client *c = http_io_clients[fd];
     if (c == NULL) return;
 
+    // remove all fd listeners
+    while (c->__fd_list != NULL) {
+        http_io_remove_fd_listener(c, c->__fd_list[1]);
+    }
+
     free(c->write_buf);
     free(c);
+
     http_io_clients[fd] = NULL;
 }
 
-// count=0 is for writing as much as possible
+void http_io_add_fd_listener(struct http_io_client *c, int fd, uint32_t listen_events) {
+    // add the fd to http_io_clients, with __is_an_event_for
+    make_space_for_http_client(fd);
+    http_io_clients[fd] = calloc(1, sizeof(struct http_io_client));
+    http_io_clients[fd]->__is_an_event_for = c;
+
+    // add to c's list, the length is c->__fd_list[0]
+    // this list is useful because we want to free them at some point
+    if (c->__fd_list != NULL) {
+        // make space for another entry
+        c->__fd_list = realloc(c->__fd_list, sizeof(int) * (c->__fd_list[0] + 2));
+        ++(c->__fd_list[0]);
+    } else {
+        // create a new __fd_list
+        c->__fd_list = malloc(sizeof(int) * 2);
+        c->__fd_list[0] = 1;
+    }
+    c->__fd_list[c->__fd_list[0]] = fd;  // append to c->__fd_list
+
+    struct epoll_event ev;
+    ev.events = listen_events; // | EPOLLET
+    ev.data.fd = fd;
+    if (epoll_ctl(http_io_global.epoll_fd, EPOLL_CTL_ADD, fd, &ev) != 0) {
+        perror("Couldn't add fd listener");
+    }
+}
+
+void http_io_remove_fd_listener(struct http_io_client *c, int fd) {
+    if (c->__fd_list == NULL) return;
+    // find index in __fd_list
+    int len = c->__fd_list[0];
+    int i = 1;
+
+    for (; i <= len; i++) {
+        if (c->__fd_list[i] == fd) {
+            goto found_index;
+        }
+    }
+    return;  // not found, not really a registered fd
+
+found_index:
+    // remove index from __fd_list
+    if (c->__fd_list[0] <= 1) {
+        // can completely free the list
+        free(c->__fd_list);
+        c->__fd_list = NULL;
+    } else {
+        // move the last item to this index to delete
+        c->__fd_list[i] = c->__fd_list[c->__fd_list[0]];
+        c->__fd_list = realloc(c->__fd_list, sizeof(int) * ((c->__fd_list[0])--));
+    }
+
+    // remove the fd from epoll and from our list
+    free(http_io_clients[fd]);
+    http_io_clients[fd] = NULL;
+    epoll_ctl(http_io_global.epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+}
+
+// used by http_io_client_write, it writes as much as possible
+static void http_io_client_try_flush(struct http_io_client *c) {
+    if (!c->out_ready || c->write_buf_start == c->write_buf_end) return;
+
+    int written;
+    while (c->write_buf_end != c->write_buf_start &&
+          (written = write(c->fd, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start)) > 0) {
+        c->write_buf_start += written;
+    }
+    if (written == -1 && errno == EAGAIN) c->out_ready = false;
+}
+
 void http_io_client_write(struct http_io_client *c, const char *buf, size_t count) {
-    size_t r_count = count;  // remaining count
-    if (r_count > 0) {
+    // LOGGING
+    if (buf != NULL) {
+        fflush(stdout);
+        printf("writing to %d:", c->fd);
+        fflush(stdout);
+        write(1, buf, count);
+        write(1, "\n", 1);
+        fflush(stdout);
+    }
+    // END LOGGING
+
+    if (count > 0) {
         // add some of buf to the write buffer if there is already space
         size_t copy_amount = c->write_buf_size - c->write_buf_end;
-        if (copy_amount > r_count) copy_amount = r_count;
+        if (copy_amount > count) copy_amount = count;
 
         memcpy(c->write_buf + c->write_buf_end, buf, copy_amount);
         c->write_buf_end += copy_amount;
         buf += copy_amount;
-        r_count -= copy_amount;
+        count -= copy_amount;
     }
 
     // try to write as much of the existing buffer as possible
-    errno = 0;
-    int written;
-    
-    if (count == 0 || (c->write_buf_end - c->write_buf_start) > 1024) {  // to reduce the amount of syscalls
-        while (c->write_buf_end != c->write_buf_start &&
-              (written = write(c->fd, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start)) > 0)
-            c->write_buf_start += written;
-    }
+    http_io_client_try_flush(c);
 
-    if (r_count == 0) return;
-
-    if (errno != EAGAIN && c->write_buf_end == c->write_buf_start) {
-        // try to write some more of the new buffer too
+    if (c->out_ready && c->write_buf_end == c->write_buf_start) {
+        // try to write some more of the new buffer too directly
+        int written;
         while (count > 0 && (written = write(c->fd, buf, count)) > 0) {
             buf += written;
             count -= written;
         }
+        if (written == -1 && errno == EAGAIN) c->out_ready = false;
     }
 
     // what remains of buf must be added to c->write_buf
-    size_t needed_write_buf_size = c->write_buf_end - c->write_buf_start + r_count;
+    size_t needed_write_buf_size = c->write_buf_end - c->write_buf_start + count;
     if (needed_write_buf_size > c->write_buf_size) {
         // must grow, grow to closest power of two
         while (c->write_buf_size < needed_write_buf_size)
@@ -94,7 +177,7 @@ void http_io_client_write(struct http_io_client *c, const char *buf, size_t coun
         
         char *new_write_buf = malloc(c->write_buf_size);
         memcpy(new_write_buf, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start);
-        memcpy(new_write_buf + c->write_buf_end - c->write_buf_start, buf, r_count);
+        memcpy(new_write_buf + c->write_buf_end - c->write_buf_start, buf, count);
 
         free(c->write_buf);
         c->write_buf = new_write_buf;
@@ -102,22 +185,27 @@ void http_io_client_write(struct http_io_client *c, const char *buf, size_t coun
         c->write_buf_end = needed_write_buf_size;
     } else {
         // we can fit it! (if we try hard enough)
-        if (r_count <= (c->write_buf_size - c->write_buf_end)) {
+        if (count <= (c->write_buf_size - c->write_buf_end)) {
             // we can fit it easily without moving memory
-            memcpy(c->write_buf + c->write_buf_end, buf, r_count);
+            memcpy(c->write_buf + c->write_buf_end, buf, count);
         } else {
             // we must move memory
             memmove(c->write_buf, c->write_buf + c->write_buf_start, c->write_buf_end - c->write_buf_start);
             c->write_buf_end -= c->write_buf_start;
             c->write_buf_start = 0;
-            memcpy(c->write_buf + c->write_buf_end, buf, r_count);
-            c->write_buf_end += r_count;
+            memcpy(c->write_buf + c->write_buf_end, buf, count);
+            c->write_buf_end += count;
         }
     }
+
+    // flush again
+    http_io_client_try_flush(c);
 }
 
+static void try_to_remove(struct http_io_client *c, bool force);
 void http_client_close(struct http_io_client *c) {
     c->should_be_removed = true;
+    try_to_remove(c, false);
 }
 
 void http_client_close_on_error(struct http_io_client *c, int err) {
@@ -182,6 +270,39 @@ int http_serve(int port_num, http_io_client_new_handler new_handler, http_io_cli
     return 0;
 }
 
+// force is whether it is already hanged up (so no need to send stuff)
+static void try_to_remove(struct http_io_client *c, bool force) {
+    int fd = c->fd;
+
+    // remove c only if the write buf is done or if c closed already
+    if (force || (c->should_be_removed && c->write_buf_start == c->write_buf_end)) {
+        if (c->free_handler != NULL) {
+            c->free_handler(c);
+            c->free_handler = NULL;
+            // LOGGING
+            printf("Partially deleted: %d\n", fd);
+            // END LOGGING
+            // free handler may have written stuff
+            if (!force && c->write_buf_start != c->write_buf_end) {
+                http_io_client_try_flush(c);
+                try_to_remove(c, force);  // try again, hopefully it's done
+                return;
+            }
+        }
+
+        // LOGGING
+        printf("Completely deleted: %d\n", fd);
+        // END LOGGING
+        if (epoll_ctl(http_io_global.epoll_fd, EPOLL_CTL_DEL, fd, NULL) != 0) {
+            perror("couldn't remove");
+            exit(1);
+        }
+
+        close(fd);
+        free_http_io_client(fd);
+    }
+}
+
 static void http_io_respond() {
     int epoll_fd = http_io_global.epoll_fd;
     int server_fd = http_io_global.server_fd;
@@ -196,7 +317,22 @@ static void http_io_respond() {
         exit(1);
     }
 
+    // pass 1: mark everything with EPOLLOUT as out_ready
     for (int i = 0; i < nfds; i++) {
+        if (!(events[i].events & EPOLLOUT)) continue;
+
+        int fd = events[i].data.fd;
+        struct http_io_client *c = http_io_clients[fd];
+        if (fd != server_fd && c != NULL && c->__is_an_event_for == NULL) {
+            c->out_ready = true;
+        }
+    }
+
+    for (int i = 0; i < nfds; i++) {
+        // LOGGING
+        printf("new event!\nfrom %d got %d: epollin(%d) epollout(%d) epollerr(%d)\n", events[i].data.fd, events[i].events, events[i].events & EPOLLIN, events[i].events & EPOLLOUT, events[i].events & EPOLLERR);
+        // END LOGGING
+
         if (events[i].data.fd == server_fd) {
             struct sockaddr_storage peer_address;
             socklen_t peer_address_len = sizeof(peer_address);
@@ -225,6 +361,17 @@ static void http_io_respond() {
             struct http_io_client *c = http_io_clients[peer_fd];
             if (c == NULL) continue;
 
+            if (c->__is_an_event_for != NULL) {
+                // is an event for a real client
+                c = c->__is_an_event_for;
+
+                c->rd_handler_data.event_fd = peer_fd;
+                c->rd_handler_data.events = events[i].events;
+                c->rd_handler(c, NULL, 0, c->rd_handler_arg, &c->rd_handler_data);
+                c->rd_handler_data.events = 0;
+                continue;
+            }
+
             if (!c->should_be_removed && events[i].events & (EPOLLIN | EPOLLHUP)) {
                 char buf[READ_BUF_SIZE];
                 ssize_t read_count = 0;
@@ -245,41 +392,14 @@ static void http_io_respond() {
                 }
             }
 
-http_respond_writeout:
-            // if possible, write stuff out from the buffer
-            if (http_io_clients[peer_fd] != NULL && events[i].events & EPOLLOUT) {
-                // printf("Ready for out %d!\n", peer_fd);
-                http_io_client_write(c, NULL, 0);
-            }
-
-            // remove c only if the write buf is done or if c closed already
-            if (events[i].events & EPOLLHUP ||
-                    (c->should_be_removed && c->write_buf_start == c->write_buf_end)) {
-                if (c->free_handler != NULL) {
-                    c->free_handler(c);
-                    c->free_handler = NULL;
-                    // free handler may have written stuff
-                    if (!(events[i].events & EPOLLHUP)
-                            && c->write_buf_start != c->write_buf_end) {
-                        goto http_respond_writeout;
-                    }
-                }
-
-                if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) != 0) {
-                    perror("couldn't remove");
-                    exit(1);
-                }
-
-                close(peer_fd);
-                free_http_io_client(peer_fd);
-            }
+            try_to_remove(c, events[i].events & EPOLLHUP);
         }
     }
 }
 
 void http_io_client_set_read_handler(struct http_io_client *c, http_io_client_read_handler rd_handler, void *arg) {
     c->rd_handler = rd_handler;
-    c->rd_handler_data = NULL;
+    memset(&c->rd_handler_data, 0, sizeof(c->rd_handler_data));
     c->rd_handler_arg = arg;
 }
 
