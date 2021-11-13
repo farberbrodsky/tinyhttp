@@ -2,13 +2,15 @@
 #define _TINYHTTP_CLIENT_STRUCT
 #include <stddef.h>
 #include <stdint.h>
+#include <linux/aio_abi.h>
 struct http_headers;
 struct http_io_client;
 
 struct http_io_client_extra {
     void *data;
-    uint32_t events;  // the events given by epoll, not zero when an event comes from http_io_add_listening_fd
-    int event_fd;     // the fd these events are about
+    struct iocb *event;  // relevant iocb that has returned or NULL
+    __s64 res;           // result code for this event
+    __s64 res2;	         // secondary result
 };
 
 typedef void (*http_client_free_handler)(struct http_io_client *c, struct http_io_client_extra *extra);

@@ -6,6 +6,7 @@
 #include "tinyhttp_client_struct.h"
 
 #define BACKLOG 32
+#define AIO_NR_EVENTS 1024
 #define MAX_EPOLL_EVENTS 8
 
 #define READ_BUF_SIZE 2048
@@ -59,7 +60,8 @@ void http_io_client_set_free_handler(struct http_io_client *c, http_io_client_fr
 #define BUF_OTHER (void *)1
 // Listen to events from an extra file descriptor, useful for e.g. serving files and asynchronously reading them.
 // In those events, extra->events is set and extra->event_fd is the file descriptor. count and buf are 0.
-void http_io_add_fd_listener(struct http_io_client *c, int fd, uint32_t listen_events);
-void http_io_remove_fd_listener(struct http_io_client *c, int fd);
+void http_io_add_fd(struct http_io_client *c, int fd, uint32_t listen_events);
+void http_io_remove_fd(struct http_io_client *c, int fd);
+void http_io_submit_op(struct iocb *iocbp);
 
 #endif

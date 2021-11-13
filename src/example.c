@@ -36,6 +36,7 @@ void logging_free(struct http_io_client *c, struct http_io_client_extra *extra) 
 }
 
 void serve_files_free(struct http_io_client *c, struct http_io_client_extra *extra) {
+    free(extra->data);
     logging_free(c, extra);
 }
 
@@ -46,6 +47,7 @@ static size_t serve_files(struct http_io_client *c, const char *buf, size_t coun
 
     struct aaaaaaaa *AAAA = extra->data;
     if (AAAA == NULL) {
+        // first run
         AAAA = extra->data = calloc(1, sizeof(struct aaaaaaaa));
         http_client_set_free_handler(c, serve_files_free);
 
@@ -54,7 +56,7 @@ static size_t serve_files(struct http_io_client *c, const char *buf, size_t coun
         printf("HTTP version %s method %s path %s\n", headers_struct->http_ver, headers_struct->method, headers_struct->path);
         printf("Headers are:\n");
         char **headers = headers_struct->headers;
-        // while (*headers != NULL) printf("%s\n", *(headers++));
+        while (*headers != NULL) printf("%s\n", *(headers++));
 
         char *my_path = malloc(strlen(headers_struct->path) + 2);
         strcpy(my_path, "./");
@@ -62,7 +64,6 @@ static size_t serve_files(struct http_io_client *c, const char *buf, size_t coun
 
         printf("Opened path is %s\n", my_path);
         int fd = open(my_path, O_RDONLY);
-        fd = 0;
 
         free(my_path);
 
@@ -72,44 +73,43 @@ static size_t serve_files(struct http_io_client *c, const char *buf, size_t coun
         }
 
         AAAA->opened_file_fd = fd;
-        http_io_add_fd_listener(c, fd, EPOLLIN);
+        http_io_add_fd(c, fd, EPOLLIN);
+
         printf("Listening to file descriptor %d!\n", fd);
+
+        struct iocb *iop = calloc(1, sizeof(struct iocb));
+        iop->aio_fildes = fd;
+        iop->aio_lio_opcode = IOCB_CMD_PREAD;
+        iop->aio_buf = (__u64)malloc(1024);
+        iop->aio_nbytes = 1024;
+        iop->aio_offset = 0;
+
+        http_io_submit_op(iop);
 
         http_response_set_status(c, HTTP_200_OK);
         http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
-        http_response_send_content(c, "Hello there!", strlen("Hello there!"));
-
-        // goto read_and_send;
     }
 
-    if (extra->events != 0) {
-        printf("Got an event!\n");
-        if (extra->event_fd == AAAA->opened_file_fd && (extra->events & (EPOLLIN | EPOLLERR | EPOLLHUP))) {
-            if (extra->events & EPOLLERR) {
-close_opened_fd:
-                printf("Closing my fd\n");
-                http_io_remove_fd_listener(c, AAAA->opened_file_fd);
-                http_client_close(c);
-                return count;
-            }
-            char buf[1024];
-            int rd_count;
-read_and_send:
-            while (true) {
-                rd_count = read(AAAA->opened_file_fd, buf, 1024);
-                printf("Read %d\n", rd_count);
+    if (extra->event != NULL) {
+        struct iocb *iop = extra->event;
+        printf("Asynchronously read %zd bytes\n", (ssize_t)extra->res);
+        if (extra->res <= 0) {
+            // done or error
+            close(AAAA->opened_file_fd);
+            http_io_remove_fd(c, AAAA->opened_file_fd);
+            http_client_close(c);
+        } else {
+            http_response_send_content(c, (char *)iop->aio_buf, extra->res);
 
-                if (rd_count <= 0 && errno != EAGAIN) {
-                    goto close_opened_fd;
-                } else {
-                    printf("Yay!!! Sending %d\n", rd_count);
-                    http_response_send_content(c, buf, rd_count);
-                }
-            }
+            // queue another read
+            struct iocb *iop2 = calloc(1, sizeof(struct iocb));
+            iop2->aio_fildes = AAAA->opened_file_fd;
+            iop2->aio_lio_opcode = IOCB_CMD_PREAD;
+            iop2->aio_buf = (__u64)malloc(1024);
+            iop2->aio_nbytes = 1024;
+            iop2->aio_offset = iop->aio_offset + extra->res;
 
-            if (extra->events & EPOLLHUP) {
-                goto close_opened_fd;
-            }
+            http_io_submit_op(iop2);
         }
     }
 

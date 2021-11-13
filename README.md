@@ -1,5 +1,5 @@
 # tinyhttp
-A tiny HTTP/1.1 server library, implemented with [epoll](https://man7.org/linux/man-pages/man7/epoll.7.html).
+A tiny HTTP/1.1 server library, implemented with [epoll](https://man7.org/linux/man-pages/man7/epoll.7.html) for networking and [io_submit](https://man7.org/linux/man-pages/man2/io_submit.2.html) for asynchronous file I/O.
 
 Currently supported:
 
@@ -9,7 +9,8 @@ Currently supported:
 - [x] Utilities for constructing HTTP responses
 - [x] Transfer-Encoding: chunked responses
 - [x] Transfer-Encoding: chunked requests
+- [x] Low-level asynchronous file I/O
 - [ ] Utilities for parsing parameters in the URL (e.g. /search?q=AAAAAA)
 - [ ] Full RFC2616 Standard compliance
+- [ ] Graceful shutdown, signal handling in general
 
-It is mostly single-threaded, but since you can't use epoll to read normal files (man epoll_ctl, errors, EPERM), I have to use a separate thread for most file IO operations. This is not yet implemented.

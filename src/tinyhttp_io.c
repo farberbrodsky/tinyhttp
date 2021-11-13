@@ -10,14 +10,31 @@
 #include <stdbool.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/eventfd.h>
+#include <sys/syscall.h>
+
+// for async file io operations that can't be immediately submitted
+struct aio_op_queue_node {
+    struct iocb *value;
+    struct aio_op_queue_node *next;
+};
+struct aio_op_queue {
+    struct aio_op_queue_node *head;
+    struct aio_op_queue_node *tail;
+};
 
 static struct http_io_global_struct {
     int epoll_fd;
     int server_fd;
+
+    // for async file io
+    aio_context_t aio_ctx;
+    int aio_eventfd;
+    struct aio_op_queue aio_op_queue;
+
     http_io_client_new_handler new_handler;
     http_io_client_error_handler err_handler;
 } http_io_global;
-
 
 // indexes in this array are based on file descriptors
 static struct http_io_client **http_io_clients = NULL;
@@ -53,7 +70,7 @@ static void free_http_io_client(int fd) {
 
     // remove all fd listeners
     while (c->__fd_list != NULL) {
-        http_io_remove_fd_listener(c, c->__fd_list[1]);
+        http_io_remove_fd(c, c->__fd_list[1]);
     }
 
     free(c->write_buf);
@@ -62,7 +79,7 @@ static void free_http_io_client(int fd) {
     http_io_clients[fd] = NULL;
 }
 
-void http_io_add_fd_listener(struct http_io_client *c, int fd, uint32_t listen_events) {
+void http_io_add_fd(struct http_io_client *c, int fd, uint32_t listen_events) {
     // add the fd to http_io_clients, with __is_an_event_for
     make_space_for_http_client(fd);
     http_io_clients[fd] = calloc(1, sizeof(struct http_io_client));
@@ -80,16 +97,9 @@ void http_io_add_fd_listener(struct http_io_client *c, int fd, uint32_t listen_e
         c->__fd_list[0] = 1;
     }
     c->__fd_list[c->__fd_list[0]] = fd;  // append to c->__fd_list
-
-    struct epoll_event ev;
-    ev.events = listen_events; // | EPOLLET
-    ev.data.fd = fd;
-    if (epoll_ctl(http_io_global.epoll_fd, EPOLL_CTL_ADD, fd, &ev) != 0) {
-        perror("Couldn't add fd listener");
-    }
 }
 
-void http_io_remove_fd_listener(struct http_io_client *c, int fd) {
+void http_io_remove_fd(struct http_io_client *c, int fd) {
     if (c->__fd_list == NULL) return;
     // find index in __fd_list
     int len = c->__fd_list[0];
@@ -114,10 +124,35 @@ found_index:
         c->__fd_list = realloc(c->__fd_list, sizeof(int) * ((c->__fd_list[0])--));
     }
 
-    // remove the fd from epoll and from our list
+    // remove the fd from our list
     free(http_io_clients[fd]);
     http_io_clients[fd] = NULL;
-    epoll_ctl(http_io_global.epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+}
+
+void http_io_submit_op(struct iocb *iocbp) {
+    iocbp->aio_resfd = http_io_global.aio_eventfd;
+    iocbp->aio_flags |= IOCB_FLAG_RESFD;
+    if (syscall(SYS_io_submit, http_io_global.aio_ctx, 1, &iocbp) != -1) {
+        if (iocbp->aio_lio_opcode == IOCB_CMD_PREAD && errno == EAGAIN) {
+            // this means nothing, the file is probably just non-blocking
+        } else if (errno == EAGAIN) {
+            // add to the queue, we'll try again after we get some events
+            struct aio_op_queue_node *node = malloc(sizeof(struct aio_op_queue_node));
+            node->value = iocbp;
+            node->next = NULL;
+
+            if (http_io_global.aio_op_queue.head == NULL) {
+                node->next = NULL;
+                http_io_global.aio_op_queue.head = node;
+                http_io_global.aio_op_queue.tail = node;
+            } else {
+                http_io_global.aio_op_queue.tail->next = node;
+                http_io_global.aio_op_queue.tail = node;
+            }
+        } else {
+            perror("Couldn't submit op :(");
+        }
+    }
 }
 
 // used by http_io_client_write, it writes as much as possible
@@ -133,17 +168,6 @@ static void http_io_client_try_flush(struct http_io_client *c) {
 }
 
 void http_io_client_write(struct http_io_client *c, const char *buf, size_t count) {
-    // LOGGING
-    if (buf != NULL) {
-        fflush(stdout);
-        printf("writing to %d:", c->fd);
-        fflush(stdout);
-        write(1, buf, count);
-        write(1, "\n", 1);
-        fflush(stdout);
-    }
-    // END LOGGING
-
     if (count > 0) {
         // add some of buf to the write buffer if there is already space
         size_t copy_amount = c->write_buf_size - c->write_buf_end;
@@ -160,7 +184,7 @@ void http_io_client_write(struct http_io_client *c, const char *buf, size_t coun
 
     if (c->out_ready && c->write_buf_end == c->write_buf_start) {
         // try to write some more of the new buffer too directly
-        int written;
+        int written = 0;
         while (count > 0 && (written = write(c->fd, buf, count)) > 0) {
             buf += written;
             count -= written;
@@ -262,6 +286,27 @@ int http_serve(int port_num, http_io_client_new_handler new_handler, http_io_cli
         return -5;
     }
 
+    // start aio
+    http_io_global.aio_op_queue.head = NULL;
+    http_io_global.aio_op_queue.tail = NULL;
+    http_io_global.aio_ctx = 0;
+    if (syscall(SYS_io_setup, AIO_NR_EVENTS, &http_io_global.aio_ctx) != 0) {
+        close(server_fd);
+        return -6;
+    }
+
+    // give it an eventfd
+    http_io_global.aio_eventfd = eventfd(0, EFD_NONBLOCK);
+
+    ev.events = EPOLLIN;
+    ev.data.fd = http_io_global.aio_eventfd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, http_io_global.aio_eventfd, &ev) != 0) {
+        close(server_fd);
+        syscall(SYS_io_destroy, http_io_global.aio_ctx);
+        close(http_io_global.aio_eventfd);
+        return -7;
+    }
+
     http_io_global.epoll_fd = epoll_fd;
     http_io_global.server_fd = server_fd;
     while (true) http_io_respond();
@@ -279,9 +324,6 @@ static void try_to_remove(struct http_io_client *c, bool force) {
         if (c->free_handler != NULL) {
             c->free_handler(c);
             c->free_handler = NULL;
-            // LOGGING
-            printf("Partially deleted: %d\n", fd);
-            // END LOGGING
             // free handler may have written stuff
             if (!force && c->write_buf_start != c->write_buf_end) {
                 http_io_client_try_flush(c);
@@ -290,9 +332,6 @@ static void try_to_remove(struct http_io_client *c, bool force) {
             }
         }
 
-        // LOGGING
-        printf("Completely deleted: %d\n", fd);
-        // END LOGGING
         if (epoll_ctl(http_io_global.epoll_fd, EPOLL_CTL_DEL, fd, NULL) != 0) {
             perror("couldn't remove");
             exit(1);
@@ -306,6 +345,7 @@ static void try_to_remove(struct http_io_client *c, bool force) {
 static void http_io_respond() {
     int epoll_fd = http_io_global.epoll_fd;
     int server_fd = http_io_global.server_fd;
+    int eventfd = http_io_global.aio_eventfd;
 
     struct epoll_event ev, events[MAX_EPOLL_EVENTS];
     int nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, -1);
@@ -329,11 +369,8 @@ static void http_io_respond() {
     }
 
     for (int i = 0; i < nfds; i++) {
-        // LOGGING
-        printf("new event!\nfrom %d got %d: epollin(%d) epollout(%d) epollerr(%d)\n", events[i].data.fd, events[i].events, events[i].events & EPOLLIN, events[i].events & EPOLLOUT, events[i].events & EPOLLERR);
-        // END LOGGING
-
         if (events[i].data.fd == server_fd) {
+            // new client received
             struct sockaddr_storage peer_address;
             socklen_t peer_address_len = sizeof(peer_address);
             int peer_fd;
@@ -356,21 +393,66 @@ static void http_io_respond() {
                     http_io_global.new_handler(http_io_clients[peer_fd]);
                 }
             }
+        } else if (events[i].data.fd == eventfd) {
+            // async operation ready
+            uint64_t u;
+            read(eventfd, &u, sizeof(u));
+
+            struct io_event io_events[MAX_EPOLL_EVENTS];
+
+            int io_events_count = syscall(SYS_io_getevents, http_io_global.aio_ctx, 0, MAX_EPOLL_EVENTS, io_events, NULL);
+            while (io_events_count > 0) {
+                // handle each event
+                for (int i = 0; i < io_events_count; i++) {
+                    struct io_event *ioev = &io_events[i];
+                    struct iocb *iop = (void *)ioev->obj;
+                    int op_fd = iop->aio_fildes;
+                    struct http_io_client *op_c = http_io_clients[op_fd];
+
+                    if (op_c == NULL || op_c->__is_an_event_for == NULL) {
+                        // ignore this, it's not registered
+                        goto free_iop;
+                    }
+
+                    // handle this event
+                    op_c = op_c->__is_an_event_for;
+
+                    op_c->rd_handler_data.res = ioev->res;
+                    op_c->rd_handler_data.res2 = ioev->res2;
+                    op_c->rd_handler_data.event = iop;
+                    op_c->rd_handler(op_c, NULL, 0, op_c->rd_handler_arg, &op_c->rd_handler_data);
+                    if (http_io_clients[op_fd] != NULL) op_c->rd_handler_data.event = NULL;  // it might have been deleted
+free_iop:
+                    if (iop->aio_buf != 0) free((void *)iop->aio_buf);
+                    free(iop);
+                }
+
+                // get more events
+                if (io_events_count == MAX_EPOLL_EVENTS) {
+                    io_events_count = syscall(SYS_io_getevents, http_io_global.aio_ctx, 1, MAX_EPOLL_EVENTS, io_events, NULL);
+                } else {
+                    break;
+                }
+            }
+
+            // check the queue for more events to submit
+            while (http_io_global.aio_op_queue.head != NULL) {
+                if (syscall(SYS_io_submit, http_io_global.aio_ctx, 1, &http_io_global.aio_op_queue.head->value) == -1) {
+                    if (errno == EAGAIN) break;  // other ones won't work either
+                    // if there's a different error this node can be removed
+                }
+                // try the next one
+                http_io_global.aio_op_queue.head = http_io_global.aio_op_queue.head->next;
+            }
+
+            if (io_events_count == -1) {
+                perror("Couldn't get io event");
+            }
         } else {
+            // just a regular event
             int peer_fd = events[i].data.fd;
             struct http_io_client *c = http_io_clients[peer_fd];
             if (c == NULL) continue;
-
-            if (c->__is_an_event_for != NULL) {
-                // is an event for a real client
-                c = c->__is_an_event_for;
-
-                c->rd_handler_data.event_fd = peer_fd;
-                c->rd_handler_data.events = events[i].events;
-                c->rd_handler(c, NULL, 0, c->rd_handler_arg, &c->rd_handler_data);
-                c->rd_handler_data.events = 0;
-                continue;
-            }
 
             if (!c->should_be_removed && events[i].events & (EPOLLIN | EPOLLHUP)) {
                 char buf[READ_BUF_SIZE];
