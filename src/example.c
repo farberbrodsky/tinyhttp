@@ -35,20 +35,25 @@ void logging_free(struct http_io_client *c, struct http_io_client_extra *extra) 
     printf("Connection closed: %d\n", c->fd);
 }
 
+
+struct serve_files_data {
+    int opened_file_fd;
+};
+
 void serve_files_free(struct http_io_client *c, struct http_io_client_extra *extra) {
+    if (extra->data != NULL) {
+        int opened_file_fd = ((struct serve_files_data *)extra->data)->opened_file_fd;
+        if (opened_file_fd != -1) close(opened_file_fd);
+    }
     free(extra->data);
     logging_free(c, extra);
 }
 
 static size_t serve_files(struct http_io_client *c, const char *buf, size_t count, size_t content_length, struct http_io_client_extra *extra) {
-    struct aaaaaaaa {
-        int opened_file_fd;
-    };
-
-    struct aaaaaaaa *AAAA = extra->data;
+    struct serve_files_data *AAAA = extra->data;
     if (AAAA == NULL) {
         // first run
-        AAAA = extra->data = calloc(1, sizeof(struct aaaaaaaa));
+        AAAA = extra->data = calloc(1, sizeof(struct serve_files_data));
         http_client_set_free_handler(c, serve_files_free);
 
         struct http_headers *headers_struct = c->client_data.headers;
@@ -67,12 +72,12 @@ static size_t serve_files(struct http_io_client *c, const char *buf, size_t coun
 
         free(my_path);
 
+        AAAA->opened_file_fd = fd;
         if (fd == -1) {
             http_client_close_on_error(c, HTTP_EGENERIC);
             return count;
         }
 
-        AAAA->opened_file_fd = fd;
         http_io_add_fd(c, fd, EPOLLIN);
 
         printf("Listening to file descriptor %d!\n", fd);
@@ -95,8 +100,7 @@ static size_t serve_files(struct http_io_client *c, const char *buf, size_t coun
         printf("Asynchronously read %zd bytes\n", (ssize_t)extra->res);
         if (extra->res <= 0) {
             // done or error
-            close(AAAA->opened_file_fd);
-            http_io_remove_fd(c, AAAA->opened_file_fd);
+            http_io_remove_fd(c, AAAA->opened_file_fd);  // optional
             http_client_close(c);
         } else {
             http_response_send_content(c, (char *)iop->aio_buf, extra->res);

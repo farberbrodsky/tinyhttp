@@ -68,11 +68,6 @@ static void free_http_io_client(int fd) {
     struct http_io_client *c = http_io_clients[fd];
     if (c == NULL) return;
 
-    // remove all fd listeners
-    while (c->__fd_list != NULL) {
-        http_io_remove_fd(c, c->__fd_list[1]);
-    }
-
     free(c->write_buf);
     free(c);
 
@@ -321,6 +316,11 @@ static void try_to_remove(struct http_io_client *c, bool force) {
 
     // remove c only if the write buf is done or if c closed already
     if (force || (c->should_be_removed && c->write_buf_start == c->write_buf_end)) {
+        // remove all fd listeners
+        while (c->__fd_list != NULL) {
+            http_io_remove_fd(c, c->__fd_list[1]);
+        }
+
         if (c->free_handler != NULL) {
             c->free_handler(c);
             c->free_handler = NULL;
@@ -454,6 +454,8 @@ free_iop:
             struct http_io_client *c = http_io_clients[peer_fd];
             if (c == NULL) continue;
 
+            bool force_remove = events[i].events & EPOLLHUP;  // passed to try_to_remove
+
             if (!c->should_be_removed && events[i].events & (EPOLLIN | EPOLLHUP)) {
                 char buf[READ_BUF_SIZE];
                 ssize_t read_count = 0;
@@ -468,14 +470,18 @@ free_iop:
                     size_t cnt = c->rd_handler(c, buf_p, read_count, c->rd_handler_arg, &c->rd_handler_data);
                     read_count -= cnt;
                     buf_p += cnt;
+                    goto next_epoll_event;
                 }
                 if (events[i].events & EPOLLHUP || read_count == 0 || (read_count == -1 && errno != EAGAIN)) {
                     c->should_be_removed = true;  // nothing to read anymore
+                    force_remove = true;          // you can really remove this
                 }
             }
 
-            try_to_remove(c, events[i].events & EPOLLHUP);
+            try_to_remove(c, force_remove);
         }
+next_epoll_event:
+        continue;
     }
 }
 

@@ -59,9 +59,11 @@ void http_io_client_set_free_handler(struct http_io_client *c, http_io_client_fr
 
 #define BUF_OTHER (void *)1
 // Listen to events from an extra file descriptor, useful for e.g. serving files and asynchronously reading them.
-// In those events, extra->events is set and extra->event_fd is the file descriptor. count and buf are 0.
+// In those events, extra->event is set and res, res2 are from the io_event. count and buf are 0.
 void http_io_add_fd(struct http_io_client *c, int fd, uint32_t listen_events);
+// Stop listening to an fd. It checks that you added the file descriptor, and does nothing if you hadn't. Completely optional, it is called automatically when the client is closed.
 void http_io_remove_fd(struct http_io_client *c, int fd);
+// Submit an iocb, you will get an event if the file descriptor is in your list
 void http_io_submit_op(struct iocb *iocbp);
 
 #endif
