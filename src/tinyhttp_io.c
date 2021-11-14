@@ -470,7 +470,7 @@ free_iop:
                     size_t cnt = c->rd_handler(c, buf_p, read_count, c->rd_handler_arg, &c->rd_handler_data);
                     read_count -= cnt;
                     buf_p += cnt;
-                    goto next_epoll_event;
+                    if (http_io_clients[peer_fd] == NULL) goto next_epoll_event;  // done with this client
                 }
                 if (events[i].events & EPOLLHUP || read_count == 0 || (read_count == -1 && errno != EAGAIN)) {
                     c->should_be_removed = true;  // nothing to read anymore
