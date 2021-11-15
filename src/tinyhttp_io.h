@@ -66,4 +66,7 @@ void http_io_remove_fd(struct http_io_client *c, int fd);
 // Submit an iocb, you will get an event if the file descriptor is in your list
 void http_io_submit_op(struct iocb *iocbp);
 
+// Wrappers for http_io_submit_op
+void http_io_submit_read(int fd, size_t nbytes, size_t offset);
+
 #endif

@@ -82,14 +82,7 @@ static size_t serve_files(struct http_io_client *c, const char *buf, size_t coun
 
         printf("Listening to file descriptor %d!\n", fd);
 
-        struct iocb *iop = calloc(1, sizeof(struct iocb));
-        iop->aio_fildes = fd;
-        iop->aio_lio_opcode = IOCB_CMD_PREAD;
-        iop->aio_buf = (__u64)malloc(1024);
-        iop->aio_nbytes = 1024;
-        iop->aio_offset = 0;
-
-        http_io_submit_op(iop);
+        http_io_submit_read(fd, 1024, 0);
 
         http_response_set_status(c, HTTP_200_OK);
         http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
@@ -103,17 +96,9 @@ static size_t serve_files(struct http_io_client *c, const char *buf, size_t coun
             http_io_remove_fd(c, AAAA->opened_file_fd);  // optional
             http_client_close(c);
         } else {
+            // send and read more
             http_response_send_content(c, (char *)iop->aio_buf, extra->res);
-
-            // queue another read
-            struct iocb *iop2 = calloc(1, sizeof(struct iocb));
-            iop2->aio_fildes = AAAA->opened_file_fd;
-            iop2->aio_lio_opcode = IOCB_CMD_PREAD;
-            iop2->aio_buf = (__u64)malloc(1024);
-            iop2->aio_nbytes = 1024;
-            iop2->aio_offset = iop->aio_offset + extra->res;
-
-            http_io_submit_op(iop2);
+            http_io_submit_read(AAAA->opened_file_fd, 1024, iop->aio_offset + extra->res);
         }
     }
 

@@ -150,6 +150,17 @@ void http_io_submit_op(struct iocb *iocbp) {
     }
 }
 
+void http_io_submit_read(int fd, size_t nbytes, size_t offset) {
+    struct iocb *iop = calloc(1, sizeof(struct iocb));
+    iop->aio_fildes = fd;
+    iop->aio_lio_opcode = IOCB_CMD_PREAD;
+    iop->aio_buf = (__u64)malloc(nbytes);
+    iop->aio_nbytes = nbytes;
+    iop->aio_offset = offset;
+
+    http_io_submit_op(iop);
+}
+
 // used by http_io_client_write, it writes as much as possible
 static void http_io_client_try_flush(struct http_io_client *c) {
     if (!c->out_ready || c->write_buf_start == c->write_buf_end) return;
