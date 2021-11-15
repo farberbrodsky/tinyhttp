@@ -108,13 +108,9 @@ static size_t serve_files(struct http_io_client *c, const char *buf, size_t coun
 static size_t content_req_handler(struct http_io_client *c, const char *buf, size_t count, size_t content_length, struct http_io_client_extra *extra) {
     struct http_headers *headers_struct = c->client_data.headers;
     if (extra->data == 0) {
-        // Read content length
+        // Store remaining content_length in extra->data
+        extra->data = (void *)content_length;
         printf("Content length is %zu\n", content_length);
-        if ((size_t)content_length == SIZE_MAX) {
-            extra->data = (void *)3;  // will be set to 2 on second run
-        } else {
-            extra->data = (void *)content_length + 1;  // how many bytes we need, plus 1
-        }
 
         printf("HTTP version %s method %s path %s\n", headers_struct->http_ver, headers_struct->method, headers_struct->path);
         printf("Headers are:\n");
@@ -128,14 +124,14 @@ static size_t content_req_handler(struct http_io_client *c, const char *buf, siz
         printf("\n");
         if (content_length != SIZE_MAX) extra->data -= count;
     }
-    if (extra->data == (void *)1 || (extra->data == (void *)2 && content_length == SIZE_MAX && count == 0)) {  // done reading
+    if (extra->data == 0 || (extra->data == ((void *)SIZE_MAX - 1 /* not first run */) && count == 0)) {  // done reading
         http_response_set_status(c, HTTP_200_OK);
         http_response_set_header(c, "Content-Type", "text/plain; charset=utf-8");
         http_response_set_content_length(c, 4);
         http_response_send_content(c, "1337", 4);
         http_client_close(c);
     }
-    if (content_length == SIZE_MAX) extra->data = (void *)2;
+    if (extra->data == (void *)SIZE_MAX) extra->data = (void *)SIZE_MAX - 1;  /* not first run */
     return count;
 }
 

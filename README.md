@@ -12,5 +12,8 @@ Currently supported:
 - [x] Low-level asynchronous file I/O
 - [ ] Utilities for parsing parameters in the URL (e.g. /search?q=AAAAAA)
 - [ ] Full RFC2616 Standard compliance
-- [ ] Graceful shutdown, signal handling in general
 
+General todo list:
+
+- [ ] Graceful shutdown, signal handling in general
+- [ ] Syscall batching because context switching is expensive

@@ -194,7 +194,8 @@ void http_response_send_content(struct http_io_client *c, char *buf, size_t coun
 }
 
 struct http_request_internal {
-    size_t chunk_size;
+    size_t chunk_size;  // SIZE_MAX on first run
+    bool end_of_data;   // set after a 0 size chunk
     int chunk_line_buf_len;
     char chunk_line_buf[32];
 };
@@ -202,15 +203,24 @@ struct http_request_internal {
 static size_t http_content_rd_handler(struct http_io_client *c, const char *buf, size_t count, void *arg, struct http_io_client_extra *extra) {
     if (c->client_data.request_encoding == HTTP_REQUEST_ENCODING_CHUNKED) {
         struct http_request_internal *i = c->client_data.http_request_internal;
+        if (i->end_of_data) {
+            ((http_client_read_handler)arg)(c, NULL, 0, c->client_data.__content_len, extra);
+            return count;
+        }
+
         if (i->chunk_size != 0) {
-            if (count > i->chunk_size)
+            if (i->chunk_size == SIZE_MAX)
+                count = 0;  // first run
+            else if (count > i->chunk_size)
                 count = i->chunk_size;
+
             size_t result = ((http_client_read_handler)arg)(c, buf, count, c->client_data.__content_len, extra);
 
-            if (i->chunk_size == SIZE_MAX) // first run
-                i->chunk_size = 0;
+            if (i->chunk_size == SIZE_MAX)
+                i->chunk_size = 0;  // first run
             else
                 i->chunk_size -= result;
+
             return result;
         } else {
             size_t result = 0;
@@ -235,8 +245,9 @@ static size_t http_content_rd_handler(struct http_io_client *c, const char *buf,
                     sscanf(i->chunk_line_buf, "%zX", &i->chunk_size);
                 i->chunk_line_buf_len = 0;
                 if (i->chunk_size == 0) {
-                    // the last chunk
-                    return ((http_client_read_handler)arg)(c, NULL, 0, c->client_data.__content_len, extra);
+                    // the last chunk, end
+                    i->end_of_data = true;
+                    return result + ((http_client_read_handler)arg)(c, NULL, 0, c->client_data.__content_len, extra);
                 }
             }
             return result;
