@@ -78,7 +78,7 @@ static size_t serve_files(struct http_io_client *c, const char *buf, size_t coun
             return count;
         }
 
-        http_io_add_fd(c, fd, EPOLLIN);
+        http_io_add_fd(c, fd);
 
         printf("Listening to file descriptor %d!\n", fd);
 

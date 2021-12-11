@@ -74,7 +74,7 @@ static void free_http_io_client(int fd) {
     http_io_clients[fd] = NULL;
 }
 
-void http_io_add_fd(struct http_io_client *c, int fd, uint32_t listen_events) {
+void http_io_add_fd(struct http_io_client *c, int fd) {
     // add the fd to http_io_clients, with __is_an_event_for
     make_space_for_http_client(fd);
     http_io_clients[fd] = calloc(1, sizeof(struct http_io_client));
